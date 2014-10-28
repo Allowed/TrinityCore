@@ -5192,7 +5192,7 @@ bool Movement::PrintInvalidSequenceElement(MovementStatusElements const element,
     return false;
 }
 
-Movement::PacketSender::PacketSender(Unit* unit, Opcodes serverControl, Opcodes playerControl, Opcodes broadcast /*= SMSG_PLAYER_MOVE*/, ExtraMovementStatusElement* extras /*= NULL*/)
+Movement::PacketSender::PacketSender(Unit* unit, OpcodeServer serverControl, OpcodeServer playerControl, OpcodeServer broadcast /*= SMSG_PLAYER_MOVE*/, ExtraMovementStatusElement* extras /*= NULL*/)
     : _extraElements(extras), _unit(unit)
 {
     if (unit->GetTypeId() == TYPEID_PLAYER && unit->ToPlayer()->m_mover->GetTypeId() == TYPEID_PLAYER)
@@ -5202,7 +5202,7 @@ Movement::PacketSender::PacketSender(Unit* unit, Opcodes serverControl, Opcodes 
     }
     else
     {
-        _selfOpcode = NULL_OPCODE;
+        _selfOpcode = static_cast<OpcodeServer>(NULL_OPCODE);
         _broadcast = serverControl;
     }
 }
@@ -5213,7 +5213,7 @@ void Movement::PacketSender::Send() const
     if (Player* player = _unit->ToPlayer())
     {
         isPlayerMovement = player->m_mover->GetTypeId() == TYPEID_PLAYER;
-        if (isPlayerMovement && _selfOpcode != NULL_OPCODE)
+        if (isPlayerMovement && _selfOpcode != static_cast<OpcodeServer>(NULL_OPCODE))
         {
             WorldPacket data(_selfOpcode);
             _unit->WriteMovementInfo(data, _extraElements);
@@ -5221,7 +5221,7 @@ void Movement::PacketSender::Send() const
         }
     }
 
-    if (_broadcast != NULL_OPCODE)
+    if (_broadcast != static_cast<OpcodeServer>(NULL_OPCODE))
     {
         ///! Need to reset current extra element index before writing another packet
         if (_extraElements)
@@ -5233,10 +5233,11 @@ void Movement::PacketSender::Send() const
     }
 }
 
-MovementStatusElements const* GetMovementStatusElementsSequence(Opcodes opcode)
+MovementStatusElements const* GetMovementStatusElementsSequence(uint32 opcode)
 {
     switch (opcode)
     {
+        /*
         case MSG_MOVE_FALL_LAND:
             return MovementFallLand;
         case MSG_MOVE_HEARTBEAT:
@@ -5443,6 +5444,7 @@ MovementStatusElements const* GetMovementStatusElementsSequence(Opcodes opcode)
         case CMSG_PET_CAST_SPELL:
         case CMSG_USE_ITEM:
             return CastSpellEmbeddedMovement;
+        */
         default:
             break;
     }

@@ -84,12 +84,7 @@ enum ReliquaryOfSouls
     NUMBER_ENSLAVED_SOUL            = 8
 };
 
-struct Position2d
-{
-    float x, y;
-};
-
-static Position2d Coords[]=
+G3D::Vector2 const Coords[]=
 {
     {450.4f, 212.3f},
     {542.1f, 212.3f},
@@ -172,7 +167,7 @@ public:
         {
             instance->SetBossState(DATA_RELIQUARY_OF_SOULS, NOT_STARTED);
 
-            if (EssenceGUID)
+            if (!EssenceGUID.IsEmpty())
             {
                 if (Creature* essence = ObjectAccessor::GetCreature(*me, EssenceGUID))
                     essence->DespawnOrUnsummon();
@@ -268,7 +263,7 @@ public:
             }
 
             Creature* Essence = NULL;
-            if (EssenceGUID)
+            if (!EssenceGUID.IsEmpty())
             {
                 Essence = ObjectAccessor::GetCreature(*me, EssenceGUID);
                 if (!Essence)
@@ -387,7 +382,7 @@ public:
 
 void npc_enslaved_soul::npc_enslaved_soulAI::JustDied(Unit* /*killer*/)
 {
-    if (ReliquaryGUID)
+    if (!ReliquaryGUID.IsEmpty())
         if (Creature* Reliquary = (ObjectAccessor::GetCreature((*me), ReliquaryGUID)))
             ++(ENSURE_AI(boss_reliquary_of_souls::boss_reliquary_of_soulsAI, Reliquary->AI())->SoulDeathCount);
 

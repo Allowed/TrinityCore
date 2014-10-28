@@ -60,7 +60,7 @@ namespace Movement
     {
         MoveSpline& move_spline = *unit->movespline;
 
-        bool transport = unit->GetTransGUID() != 0;
+        bool transport = !unit->GetTransGUID().IsEmpty();
         Location real_position;
         // there is a big chance that current position is unknown if current state is not finalized, need compute it
         // this also allows calculate spline position and update map position in much greater intervals
@@ -88,7 +88,7 @@ namespace Movement
         // correct first vertex
         args.path[0] = real_position;
         args.initialOrientation = real_position.orientation;
-        move_spline.onTransport = (unit->GetTransGUID() != 0);
+        move_spline.onTransport = !unit->GetTransGUID().IsEmpty();
 
         uint32 moveFlags = unit->m_movementInfo.GetMovementFlags();
         moveFlags |= MOVEMENTFLAG_FORWARD;
@@ -117,7 +117,7 @@ namespace Movement
 
         WorldPacket data(SMSG_MONSTER_MOVE, 64);
         data << unit->GetPackGUID();
-        if (unit->GetTransGUID())
+        if (!unit->GetTransGUID().IsEmpty())
         {
             data.SetOpcode(SMSG_MONSTER_MOVE_TRANSPORT);
             data << unit->GetTransGUID().WriteAsPacked();
@@ -138,7 +138,7 @@ namespace Movement
         if (move_spline.Finalized())
             return;
 
-        bool transport = unit->GetTransGUID() != 0;
+        bool transport = !unit->GetTransGUID().IsEmpty();
         Location loc;
         if (move_spline.onTransport == transport)
             loc = move_spline.ComputePosition();
@@ -178,7 +178,7 @@ namespace Movement
     {
         args.splineId = splineIdGen.NewId();
         // Elevators also use MOVEMENTFLAG_ONTRANSPORT but we do not keep track of their position changes
-        args.TransformForTransport = unit->GetTransGUID() != 0;
+        args.TransformForTransport = !unit->GetTransGUID().IsEmpty();
         // mix existing state into new
         args.flags.walkmode = unit->m_movementInfo.HasMovementFlag(MOVEMENTFLAG_WALKING);
         args.flags.flying = unit->m_movementInfo.HasMovementFlag(MovementFlags(MOVEMENTFLAG_CAN_FLY | MOVEMENTFLAG_DISABLE_GRAVITY));
@@ -188,7 +188,7 @@ namespace Movement
     void MoveSplineInit::SetFacing(const Unit* target)
     {
         args.flags.EnableFacingTarget();
-        args.facing.target = target->GetGUID().GetRawValue();
+        args.facing.target = target->GetGUID();
     }
 
     void MoveSplineInit::SetFacing(float angle)

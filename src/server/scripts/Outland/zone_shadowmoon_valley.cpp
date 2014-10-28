@@ -417,7 +417,7 @@ public:
 
             if (id == 1)
             {
-                if (PlayerGUID)
+                if (!PlayerGUID.IsEmpty())
                 {
                     Unit* player = ObjectAccessor::GetUnit(*me, PlayerGUID);
                     if (player)
@@ -441,7 +441,7 @@ public:
                     if (FlyTimer <= diff)
                     {
                         Tapped = false;
-                        if (PlayerGUID)
+                        if (!PlayerGUID.IsEmpty())
                         {
                             Player* player = ObjectAccessor::GetPlayer(*me, PlayerGUID);
                             if (player && player->GetQuestStatus(10854) == QUEST_STATUS_INCOMPLETE)
@@ -551,7 +551,7 @@ public:
             {
                 if (PoisonTimer <= diff)
                 {
-                    if (PlayerGUID)
+                    if (!PlayerGUID.IsEmpty())
                     {
                         Player* player = ObjectAccessor::GetPlayer(*me, PlayerGUID);
                         if (player && player->GetQuestStatus(11020) == QUEST_STATUS_INCOMPLETE)
@@ -776,7 +776,7 @@ public:
                 IllidanGUID = Illidan->GetGUID();
                 Illidan->SetVisible(false);
             }
-            if (PlayerGUID)
+            if (!PlayerGUID.IsEmpty())
             {
                 Player* player = ObjectAccessor::GetPlayer(*me, PlayerGUID);
                 if (player)
@@ -994,7 +994,7 @@ public:
 
             if (ConversationTimer <= diff)
             {
-                if (Event && PlayerGUID)
+                if (Event && !PlayerGUID.IsEmpty())
                     ConversationTimer = NextStep(++Step);
             } else ConversationTimer -= diff;
         }
@@ -1213,13 +1213,8 @@ static TorlothCinematic TorlothAnim[]=
     {0, 0}
 };
 
-struct Location
-{
-    float x, y, z, o;
-};
-
 //Cordinates for Spawns
-static Location SpawnLocation[]=
+static Position SpawnLocation[]=
 {
     //Cords used for:
     {-4615.8556f, 1342.2532f, 139.9f, 1.612f}, //Illidari Soldier
@@ -1727,12 +1722,7 @@ void npc_lord_illidan_stormrage::npc_lord_illidan_stormrageAI::SummonNextWave()
 
     for (uint8 i = 0; i < count; ++i)
     {
-        Creature* Spawn = NULL;
-        float X = SpawnLocation[locIndex + i].x;
-        float Y = SpawnLocation[locIndex + i].y;
-        float Z = SpawnLocation[locIndex + i].z;
-        float O = SpawnLocation[locIndex + i].o;
-        Spawn = me->SummonCreature(WavesInfo[WaveCount].CreatureId, X, Y, Z, O, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 60000);
+        Creature* Spawn = me->SummonCreature(WavesInfo[WaveCount].CreatureId, SpawnLocation[locIndex + i], TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 60000);
         ++LiveCount;
 
         if (Spawn)
@@ -1760,7 +1750,7 @@ void npc_lord_illidan_stormrage::npc_lord_illidan_stormrageAI::SummonNextWave()
 
             if (WaveCount < 3)//1-3 Wave
             {
-                if (PlayerGUID)
+                if (!PlayerGUID.IsEmpty())
                 {
                     if (Player* target = ObjectAccessor::GetPlayer(*me, PlayerGUID))
                     {
@@ -1775,7 +1765,7 @@ void npc_lord_illidan_stormrage::npc_lord_illidan_stormrageAI::SummonNextWave()
             if (WavesInfo[WaveCount].CreatureId == 22076) // Torloth
             {
                 ENSURE_AI(npc_torloth_the_magnificent::npc_torloth_the_magnificentAI, Spawn->AI())->LordIllidanGUID = me->GetGUID();
-                if (PlayerGUID)
+                if (!PlayerGUID.IsEmpty())
                     ENSURE_AI(npc_torloth_the_magnificent::npc_torloth_the_magnificentAI, Spawn->AI())->AggroTargetGUID = PlayerGUID;
             }
         }

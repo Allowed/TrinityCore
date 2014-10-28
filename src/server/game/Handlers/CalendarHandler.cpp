@@ -92,9 +92,9 @@ void WorldSession::HandleCalendarGetCalendar(WorldPacket& /*recvData*/)
         data << int32(calendarEvent->GetDungeonId());
 
         Guild* guild = sGuildMgr->GetGuildById(calendarEvent->GetGuildId());
-        data << uint64(guild ? guild->GetGUID() : 0);
+        data << (guild ? guild->GetGUID() : ObjectGuid::Empty);
 
-        data.appendPackGUID(calendarEvent->GetCreatorGUID());
+        data << calendarEvent->GetCreatorGUID().WriteAsPacked();
     }
 
     data << uint32(currTime);                              // server time
@@ -246,7 +246,7 @@ void WorldSession::HandleCalendarAddEvent(WorldPacket& recvData)
         return;
     }
 
-    CalendarEvent* calendarEvent = new CalendarEvent(sCalendarMgr->GetFreeEventId(), guid, 0, CalendarEventType(type), dungeonId,
+    CalendarEvent* calendarEvent = new CalendarEvent(sCalendarMgr->GetFreeEventId(), guid, UI64LIT(0), CalendarEventType(type), dungeonId,
         time_t(eventPackedTime), flags, time_t(unkPackedTime), title, description);
 
     if (calendarEvent->IsGuildEvent() || calendarEvent->IsGuildAnnouncement())
@@ -432,7 +432,7 @@ void WorldSession::HandleCalendarEventInvite(WorldPacket& recvData)
 
     ObjectGuid inviteeGuid;
     uint32 inviteeTeam = 0;
-    uint32 inviteeGuildId = 0;
+    ObjectGuid::LowType inviteeGuildId = UI64LIT(0);
 
     recvData >> eventId >> inviteId >> name >> isPreInvite >> isGuildEvent;
 
@@ -451,7 +451,7 @@ void WorldSession::HandleCalendarEventInvite(WorldPacket& recvData)
         if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
         {
             Field* fields = result->Fetch();
-            inviteeGuid = ObjectGuid(HIGHGUID_PLAYER, fields[0].GetUInt32());
+            inviteeGuid = ObjectGuid(HighGuid::Player, fields[0].GetUInt64());
             inviteeTeam = Player::TeamForRace(fields[1].GetUInt8());
             inviteeGuildId = Player::GetGuildIdFromDB(inviteeGuid);
         }

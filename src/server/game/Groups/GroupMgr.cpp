@@ -24,7 +24,7 @@
 GroupMgr::GroupMgr()
 {
     NextGroupDbStoreId = 1;
-    NextGroupId = 1;
+    NextGroupId = UI64LIT(1);
 }
 
 GroupMgr::~GroupMgr()
@@ -82,7 +82,7 @@ Group* GroupMgr::GetGroupByDbStoreId(uint32 storageId) const
     return NULL;
 }
 
-uint32 GroupMgr::GenerateGroupId()
+ObjectGuid::LowType GroupMgr::GenerateGroupId()
 {
     if (NextGroupId >= 0xFFFFFFFE)
     {
@@ -92,9 +92,9 @@ uint32 GroupMgr::GenerateGroupId()
     return NextGroupId++;
 }
 
-Group* GroupMgr::GetGroupByGUID(uint32 groupId) const
+Group* GroupMgr::GetGroupByGUID(ObjectGuid const& groupId) const
 {
-    GroupContainer::const_iterator itr = GroupStore.find(groupId);
+    GroupContainer::const_iterator itr = GroupStore.find(groupId.GetCounter());
     if (itr != GroupStore.end())
         return itr->second;
 
@@ -103,12 +103,12 @@ Group* GroupMgr::GetGroupByGUID(uint32 groupId) const
 
 void GroupMgr::AddGroup(Group* group)
 {
-    GroupStore[group->GetLowGUID()] = group;
+    GroupStore[group->GetGUID().GetCounter()] = group;
 }
 
 void GroupMgr::RemoveGroup(Group* group)
 {
-    GroupStore.erase(group->GetLowGUID());
+    GroupStore.erase(group->GetGUID().GetCounter());
 }
 
 void GroupMgr::LoadGroups()
@@ -181,7 +181,7 @@ void GroupMgr::LoadGroups()
             Group* group = GetGroupByDbStoreId(fields[0].GetUInt32());
 
             if (group)
-                group->LoadMemberFromDB(fields[1].GetUInt32(), fields[2].GetUInt8(), fields[3].GetUInt8(), fields[4].GetUInt8());
+                group->LoadMemberFromDB(fields[1].GetUInt64(), fields[2].GetUInt8(), fields[3].GetUInt8(), fields[4].GetUInt8());
             else
                 TC_LOG_ERROR("misc", "GroupMgr::LoadGroups: Consistency failed, can't find group (storage id: %u)", fields[0].GetUInt32());
 

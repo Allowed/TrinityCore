@@ -18,7 +18,7 @@
 #include "Common.h"
 #include "GuildMgr.h"
 
-GuildMgr::GuildMgr() : NextGuildId(1)
+GuildMgr::GuildMgr() : NextGuildId(UI64LIT(1))
 { }
 
 GuildMgr::~GuildMgr()
@@ -32,7 +32,7 @@ void GuildMgr::AddGuild(Guild* guild)
     GuildStore[guild->GetId()] = guild;
 }
 
-void GuildMgr::RemoveGuild(uint32 guildId)
+void GuildMgr::RemoveGuild(ObjectGuid::LowType guildId)
 {
     GuildStore.erase(guildId);
 }
@@ -43,7 +43,7 @@ void GuildMgr::SaveGuilds()
         itr->second->SaveToDB();
 }
 
-uint32 GuildMgr::GenerateGuildId()
+ObjectGuid::LowType GuildMgr::GenerateGuildId()
 {
     if (NextGuildId >= 0xFFFFFFFE)
     {
@@ -54,7 +54,7 @@ uint32 GuildMgr::GenerateGuildId()
 }
 
 // Guild collection
-Guild* GuildMgr::GetGuildById(uint32 guildId) const
+Guild* GuildMgr::GetGuildById(ObjectGuid::LowType guildId) const
 {
     GuildContainer::const_iterator itr = GuildStore.find(guildId);
     if (itr != GuildStore.end())
@@ -68,7 +68,7 @@ Guild* GuildMgr::GetGuildByGuid(ObjectGuid guid) const
     // Full guids are only used when receiving/sending data to client
     // everywhere else guild id is used
     if (guid.IsGuild())
-        if (uint32 guildId = guid.GetCounter())
+        if (ObjectGuid::LowType guildId = guid.GetCounter())
             return GetGuildById(guildId);
 
     return NULL;
@@ -88,7 +88,7 @@ Guild* GuildMgr::GetGuildByName(const std::string& guildName) const
     return NULL;
 }
 
-std::string GuildMgr::GetGuildNameById(uint32 guildId) const
+std::string GuildMgr::GetGuildNameById(ObjectGuid::LowType guildId) const
 {
     if (Guild* guild = GetGuildById(guildId))
         return guild->GetName();
@@ -105,7 +105,7 @@ Guild* GuildMgr::GetGuildByLeader(ObjectGuid guid) const
     return NULL;
 }
 
-uint32 GuildMgr::GetXPForGuildLevel(uint8 level) const
+uint64 GuildMgr::GetXPForGuildLevel(uint8 level) const
 {
     if (level < GuildXPperLevel.size())
         return GuildXPperLevel[level];
@@ -175,7 +175,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadRankFromDB(fields);
@@ -214,7 +214,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadMemberFromDB(fields);
@@ -248,7 +248,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadBankRightFromDB(fields);
@@ -281,7 +281,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadEventLogFromDB(fields);
@@ -315,7 +315,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadBankEventLogFromDB(fields);
@@ -346,7 +346,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadGuildNewsLogFromDB(fields);
@@ -381,7 +381,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[0].GetUInt32();
+                uint64 guildId = fields[0].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadBankTabFromDB(fields);
@@ -417,7 +417,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint32 guildId = fields[11].GetUInt32();
+                uint64 guildId = fields[11].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadBankItemFromDB(fields);
@@ -437,10 +437,10 @@ void GuildMgr::LoadGuilds()
         for (GuildContainer::const_iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
         {
             PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_ACHIEVEMENT);
-            stmt->setUInt32(0, itr->first);
+            stmt->setUInt64(0, itr->first);
             achievementResult = CharacterDatabase.Query(stmt);
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_ACHIEVEMENT_CRITERIA);
-            stmt->setUInt32(0, itr->first);
+            stmt->setUInt64(0, itr->first);
             criteriaResult = CharacterDatabase.Query(stmt);
 
             itr->second->GetAchievementMgr().LoadFromDB(achievementResult, criteriaResult);

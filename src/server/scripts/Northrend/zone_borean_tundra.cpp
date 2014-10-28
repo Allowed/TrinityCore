@@ -147,7 +147,7 @@ public:
                         if (Unit* worm = me->FindNearestCreature(NPC_SCOURGED_BURROWER, 3.0f))
                         {
                             me->Kill(worm);
-                            worm->RemoveFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+                            worm->RemoveFlag(OBJECT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
                         }
                         phaseTimer = 2000;
                         phase = 7;
@@ -803,7 +803,7 @@ public:
 
         void UpdateAI(uint32 /*diff*/) override
         {
-            if (WithRedDragonBlood && HarpoonerGUID && !me->HasAura(SPELL_RED_DRAGONBLOOD))
+            if (WithRedDragonBlood && !HarpoonerGUID.IsEmpty() && !me->HasAura(SPELL_RED_DRAGONBLOOD))
             {
                 if (Player* pHarpooner = ObjectAccessor::GetPlayer(*me, HarpoonerGUID))
                 {

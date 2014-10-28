@@ -80,8 +80,10 @@ Channel::Channel(std::string const& name, uint32 channelId, uint32 team):
                     Tokenizer tokens(db_BannedList, ' ');
                     for (Tokenizer::const_iterator i = tokens.begin(); i != tokens.end(); ++i)
                     {
-                        ObjectGuid banned_guid(uint64(strtoull(*i, NULL, 10)));
-                        if (banned_guid)
+                        std::string bannedGuidStr(*i);
+                        ObjectGuid banned_guid;
+                        banned_guid.SetRawValue(uint64(strtoull(bannedGuidStr.substr(0, 16).c_str(), NULL, 16)), uint64(strtoull(bannedGuidStr.substr(16).c_str(), NULL, 16)));
+                        if (!banned_guid.IsEmpty())
                         {
                             TC_LOG_DEBUG("chat.system", "Channel(%s) loaded bannedStore %s", name.c_str(), banned_guid.ToString().c_str());
                             bannedStore.insert(banned_guid);
@@ -110,7 +112,7 @@ void Channel::UpdateChannelInDB() const
         std::ostringstream banlist;
         BannedContainer::const_iterator iter;
         for (iter = bannedStore.begin(); iter != bannedStore.end(); ++iter)
-            banlist << iter->GetRawValue() << ' ';
+            banlist << *iter << ' ';
 
         std::string banListStr = banlist.str();
 
@@ -552,7 +554,7 @@ void Channel::List(Player const* player)
              member->GetSession()->GetSecurity() <= AccountTypes(gmLevelInWhoList)) &&
             member->IsVisibleGloballyFor(player))
         {
-            data << uint64(i->first);
+            data << i->first;
             data << uint8(i->second.flags);             // flags seems to be changed...
             ++count;
         }
@@ -676,7 +678,7 @@ void Channel::Invite(Player const* player, std::string const& newname)
         return;
     }
 
-    if (!newp->GetSocial()->HasIgnore(guid.GetCounter()))
+    if (!newp->GetSocial()->HasIgnore(guid))
     {
         WorldPacket data;
         MakeInvite(&data, guid);
@@ -691,7 +693,7 @@ void Channel::Invite(Player const* player, std::string const& newname)
 
 void Channel::SetOwner(ObjectGuid guid, bool exclaim)
 {
-    if (_ownerGUID)
+    if (!_ownerGUID.IsEmpty())
     {
         // [] will re-add player after it possible removed
         PlayerContainer::iterator p_itr = playersStore.find(_ownerGUID);
@@ -700,7 +702,7 @@ void Channel::SetOwner(ObjectGuid guid, bool exclaim)
     }
 
     _ownerGUID = guid;
-    if (_ownerGUID)
+    if (!_ownerGUID.IsEmpty())
     {
         uint8 oldFlag = GetPlayerFlags(_ownerGUID);
         playersStore[_ownerGUID].SetModerator(true);
@@ -724,7 +726,7 @@ void Channel::SendToAll(WorldPacket* data, ObjectGuid guid)
 {
     for (PlayerContainer::const_iterator i = playersStore.begin(); i != playersStore.end(); ++i)
         if (Player* player = ObjectAccessor::FindConnectedPlayer(i->first))
-            if (!guid || !player->GetSocial()->HasIgnore(guid.GetCounter()))
+            if (!guid || !player->GetSocial()->HasIgnore(guid))
                 player->GetSession()->SendPacket(data);
 }
 
@@ -762,13 +764,13 @@ void Channel::MakeNotifyPacket(WorldPacket* data, uint8 notify_type)
 void Channel::MakeJoined(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_JOINED_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeLeft(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_LEFT_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeYouJoined(WorldPacket* data)
@@ -804,13 +806,13 @@ void Channel::MakeNotModerator(WorldPacket* data)
 void Channel::MakePasswordChanged(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_PASSWORD_CHANGED_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeOwnerChanged(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_OWNER_CHANGED_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakePlayerNotFound(WorldPacket* data, std::string const& name)
@@ -838,7 +840,7 @@ void Channel::MakeChannelOwner(WorldPacket* data)
 void Channel::MakeModeChange(WorldPacket* data, ObjectGuid guid, uint8 oldflags)
 {
     MakeNotifyPacket(data, CHAT_MODE_CHANGE_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
     *data << uint8(oldflags);
     *data << uint8(GetPlayerFlags(guid));
 }
@@ -846,13 +848,13 @@ void Channel::MakeModeChange(WorldPacket* data, ObjectGuid guid, uint8 oldflags)
 void Channel::MakeAnnouncementsOn(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_ANNOUNCEMENTS_ON_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeAnnouncementsOff(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_ANNOUNCEMENTS_OFF_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeMuted(WorldPacket* data)
@@ -863,8 +865,8 @@ void Channel::MakeMuted(WorldPacket* data)
 void Channel::MakePlayerKicked(WorldPacket* data, ObjectGuid bad, ObjectGuid good)
 {
     MakeNotifyPacket(data, CHAT_PLAYER_KICKED_NOTICE);
-    *data << uint64(bad);
-    *data << uint64(good);
+    *data << bad;
+    *data << good;
 }
 
 void Channel::MakeBanned(WorldPacket* data)
@@ -875,15 +877,15 @@ void Channel::MakeBanned(WorldPacket* data)
 void Channel::MakePlayerBanned(WorldPacket* data, ObjectGuid bad, ObjectGuid good)
 {
     MakeNotifyPacket(data, CHAT_PLAYER_BANNED_NOTICE);
-    *data << uint64(bad);
-    *data << uint64(good);
+    *data << bad;
+    *data << good;
 }
 
 void Channel::MakePlayerUnbanned(WorldPacket* data, ObjectGuid bad, ObjectGuid good)
 {
     MakeNotifyPacket(data, CHAT_PLAYER_UNBANNED_NOTICE);
-    *data << uint64(bad);
-    *data << uint64(good);
+    *data << bad;
+    *data << good;
 }
 
 void Channel::MakePlayerNotBanned(WorldPacket* data, const std::string &name)
@@ -895,13 +897,13 @@ void Channel::MakePlayerNotBanned(WorldPacket* data, const std::string &name)
 void Channel::MakePlayerAlreadyMember(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_PLAYER_ALREADY_MEMBER_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeInvite(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_INVITE_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeInviteWrongFaction(WorldPacket* data)
@@ -954,19 +956,19 @@ void Channel::MakeNotInLfg(WorldPacket* data)
 void Channel::MakeVoiceOn(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_VOICE_ON_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::MakeVoiceOff(WorldPacket* data, ObjectGuid guid)
 {
     MakeNotifyPacket(data, CHAT_VOICE_OFF_NOTICE);
-    *data << uint64(guid);
+    *data << guid;
 }
 
 void Channel::JoinNotify(ObjectGuid guid)
 {
     WorldPacket data(IsConstant() ? SMSG_USERLIST_ADD : SMSG_USERLIST_UPDATE, 8 + 1 + 1 + 4 + GetName().size());
-    data << uint64(guid);
+    data << guid;
     data << uint8(GetPlayerFlags(guid));
     data << uint8(GetFlags());
     data << uint32(GetNumPlayers());
@@ -981,7 +983,7 @@ void Channel::JoinNotify(ObjectGuid guid)
 void Channel::LeaveNotify(ObjectGuid guid)
 {
     WorldPacket data(SMSG_USERLIST_REMOVE, 8 + 1 + 4 + GetName().size());
-    data << uint64(guid);
+    data << guid;
     data << uint8(GetFlags());
     data << uint32(GetNumPlayers());
     data << GetName();

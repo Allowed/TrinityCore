@@ -514,11 +514,11 @@ void AchievementMgr<Player>::DeleteFromDB(ObjectGuid guid)
     SQLTransaction trans = CharacterDatabase.BeginTransaction();
 
     PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_ACHIEVEMENT);
-    stmt->setUInt32(0, guid.GetCounter());
+    stmt->setUInt64(0, guid.GetCounter());
     trans->Append(stmt);
 
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_ACHIEVEMENT_PROGRESS);
-    stmt->setUInt32(0, guid.GetCounter());
+    stmt->setUInt64(0, guid.GetCounter());
     trans->Append(stmt);
 
     CharacterDatabase.CommitTransaction(trans);
@@ -530,11 +530,11 @@ void AchievementMgr<Guild>::DeleteFromDB(ObjectGuid guid)
     SQLTransaction trans = CharacterDatabase.BeginTransaction();
 
     PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ALL_GUILD_ACHIEVEMENTS);
-    stmt->setUInt32(0, guid.GetCounter());
+    stmt->setUInt64(0, guid.GetCounter());
     trans->Append(stmt);
 
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ALL_GUILD_ACHIEVEMENT_CRITERIA);
-    stmt->setUInt32(0, guid.GetCounter());
+    stmt->setUInt64(0, guid.GetCounter());
     trans->Append(stmt);
 
     CharacterDatabase.CommitTransaction(trans);
@@ -557,11 +557,11 @@ void AchievementMgr<Player>::SaveToDB(SQLTransaction& trans)
 
             PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_ACHIEVEMENT_BY_ACHIEVEMENT);
             stmt->setUInt16(0, iter->first);
-            stmt->setUInt32(1, GetOwner()->GetGUID().GetCounter());
+            stmt->setUInt64(1, GetOwner()->GetGUID().GetCounter());
             trans->Append(stmt);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHAR_ACHIEVEMENT);
-            stmt->setUInt32(0, GetOwner()->GetGUID().GetCounter());
+            stmt->setUInt64(0, GetOwner()->GetGUID().GetCounter());
             stmt->setUInt16(1, iter->first);
             stmt->setUInt32(2, uint32(iter->second.date));
             trans->Append(stmt);
@@ -578,14 +578,14 @@ void AchievementMgr<Player>::SaveToDB(SQLTransaction& trans)
                 continue;
 
             PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_ACHIEVEMENT_PROGRESS_BY_CRITERIA);
-            stmt->setUInt32(0, GetOwner()->GetGUID().GetCounter());
+            stmt->setUInt64(0, GetOwner()->GetGUID().GetCounter());
             stmt->setUInt16(1, iter->first);
             trans->Append(stmt);
 
             if (iter->second.counter)
             {
                 stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHAR_ACHIEVEMENT_PROGRESS);
-                stmt->setUInt32(0, GetOwner()->GetGUID().GetCounter());
+                stmt->setUInt64(0, GetOwner()->GetGUID().GetCounter());
                 stmt->setUInt16(1, iter->first);
                 stmt->setUInt32(2, iter->second.counter);
                 stmt->setUInt32(3, uint32(iter->second.date));
@@ -608,12 +608,12 @@ void AchievementMgr<Guild>::SaveToDB(SQLTransaction& trans)
             continue;
 
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_ACHIEVEMENT);
-        stmt->setUInt32(0, GetOwner()->GetId());
+        stmt->setUInt64(0, GetOwner()->GetId());
         stmt->setUInt16(1, itr->first);
         trans->Append(stmt);
 
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_GUILD_ACHIEVEMENT);
-        stmt->setUInt32(0, GetOwner()->GetId());
+        stmt->setUInt64(0, GetOwner()->GetId());
         stmt->setUInt16(1, itr->first);
         stmt->setUInt32(2, itr->second.date);
         for (GuidSet::const_iterator gItr = itr->second.guids.begin(); gItr != itr->second.guids.end(); ++gItr)
@@ -631,16 +631,16 @@ void AchievementMgr<Guild>::SaveToDB(SQLTransaction& trans)
             continue;
 
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_ACHIEVEMENT_CRITERIA);
-        stmt->setUInt32(0, GetOwner()->GetId());
+        stmt->setUInt64(0, GetOwner()->GetId());
         stmt->setUInt16(1, itr->first);
         trans->Append(stmt);
 
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_GUILD_ACHIEVEMENT_CRITERIA);
-        stmt->setUInt32(0, GetOwner()->GetId());
+        stmt->setUInt64(0, GetOwner()->GetId());
         stmt->setUInt16(1, itr->first);
         stmt->setUInt64(2, itr->second.counter);
         stmt->setUInt32(3, itr->second.date);
-        stmt->setUInt32(4, itr->second.CompletedGUID.GetCounter());
+        stmt->setUInt64(4, itr->second.CompletedGUID.GetCounter());
         trans->Append(stmt);
     }
 }
@@ -735,7 +735,7 @@ void AchievementMgr<Guild>::LoadFromDB(PreparedQueryResult achievementResult, Pr
             ca.date = time_t(fields[1].GetUInt32());
             Tokenizer guids(fields[2].GetString(), ' ');
             for (uint32 i = 0; i < guids.size(); ++i)
-                ca.guids.insert(ObjectGuid(HIGHGUID_PLAYER, uint32(atol(guids[i]))));
+                ca.guids.insert(ObjectGuid(HighGuid::Player, uint64(strtoull(guids[i], nullptr, 10))));
 
             ca.changed = false;
 
@@ -753,7 +753,7 @@ void AchievementMgr<Guild>::LoadFromDB(PreparedQueryResult achievementResult, Pr
             uint32 id      = fields[0].GetUInt16();
             uint32 counter = fields[1].GetUInt32();
             time_t date    = time_t(fields[2].GetUInt32());
-            uint32 guid    = fields[3].GetUInt32();
+            ObjectGuid::LowType guid = fields[3].GetUInt64();
 
             AchievementCriteriaEntry const* criteria = sAchievementMgr->GetAchievementCriteria(id);
             if (!criteria)
@@ -773,7 +773,7 @@ void AchievementMgr<Guild>::LoadFromDB(PreparedQueryResult achievementResult, Pr
             CriteriaProgress& progress = m_criteriaProgress[id];
             progress.counter = counter;
             progress.date    = date;
-            progress.CompletedGUID = ObjectGuid(HIGHGUID_PLAYER, guid);
+            progress.CompletedGUID = ObjectGuid(HighGuid::Player, guid);
             progress.changed = false;
         } while (criteriaResult->NextRow());
     }
@@ -868,7 +868,7 @@ void AchievementMgr<T>::SendAchievementEarned(AchievementEntry const* achievemen
         // broadcast realm first reached
         WorldPacket data(SMSG_SERVER_FIRST_ACHIEVEMENT, GetOwner()->GetName().size() + 1 + 8 + 4 + 4);
         data << GetOwner()->GetName();
-        data << uint64(GetOwner()->GetGUID());
+        data << GetOwner()->GetGUID();
         data << uint32(achievement->ID);
         data << uint32(0);                                  // 1=link supplied string as player name, 0=display plain string
         sWorld->SendGlobalMessage(&data);
@@ -931,7 +931,7 @@ void AchievementMgr<Player>::SendCriteriaUpdate(AchievementCriteriaEntry const* 
     data << uint32(entry->ID);
 
     // the counter is packed like a packed Guid
-    data.appendPackGUID(progress->counter);
+    data.AppendPackedUInt64(progress->counter);
 
     data << GetOwner()->GetPackGUID();
     if (!entry->timeLimit)
@@ -947,10 +947,11 @@ void AchievementMgr<Player>::SendCriteriaUpdate(AchievementCriteriaEntry const* 
 template<>
 void AchievementMgr<Guild>::SendCriteriaUpdate(AchievementCriteriaEntry const* entry, CriteriaProgress const* progress, uint32 /*timeElapsed*/, bool /*timedCompleted*/) const
 {
+    /*
     //will send response to criteria progress request
     WorldPacket data(SMSG_GUILD_CRITERIA_DATA, 3 + 1 + 1 + 8 + 8 + 4 + 4 + 4 + 4 + 4);
 
-    ObjectGuid counter(progress->counter); // for accessing every byte individually
+    ObjectGuid counter(0, progress->counter); // for accessing every byte individually
     ObjectGuid guid = progress->CompletedGUID;
 
     data.WriteBits(1, 21);
@@ -996,6 +997,7 @@ void AchievementMgr<Guild>::SendCriteriaUpdate(AchievementCriteriaEntry const* e
     data.WriteByteSeq(guid[0]);
 
     GetOwner()->BroadcastPacketIfTrackingAchievement(&data, entry->ID);
+    */
 }
 
 template<class T>
@@ -1006,6 +1008,7 @@ void AchievementMgr<T>::SendAllTrackedCriterias(Player* /*receiver*/, std::set<u
 template<>
 void AchievementMgr<Guild>::SendAllTrackedCriterias(Player* receiver, std::set<uint32> const& trackedCriterias) const
 {
+    /*
     ObjectGuid counter;
     ObjectGuid guid;
     uint32 trackedCriteriasCount = 0;
@@ -1034,7 +1037,7 @@ void AchievementMgr<Guild>::SendAllTrackedCriterias(Player* receiver, std::set<u
         if (progress == m_criteriaProgress.end())
             continue;
 
-        counter.Set(progress->second.counter);
+        counter.SetRawValue(progress->second.counter);
         guid = progress->second.CompletedGUID;
 
         criteriaBits.WriteBit(counter[4]);
@@ -1084,6 +1087,7 @@ void AchievementMgr<Guild>::SendAllTrackedCriterias(Player* receiver, std::set<u
         data.append(criteriaData);
 
     receiver->GetSession()->SendPacket(&data);
+    */
 }
 
 /**
@@ -1911,8 +1915,8 @@ void AchievementMgr<Player>::CompletedAchievement(AchievementEntry const* achiev
     if (!GetOwner()->GetSession()->PlayerLoading())
         SendAchievementEarned(achievement);
 
-    TC_LOG_INFO("achievement", "AchievementMgr::CompletedAchievement(%u). Player: %s (%u)",
-        achievement->ID, GetOwner()->GetName().c_str(), GetOwner()->GetGUIDLow());
+    TC_LOG_INFO("achievement", "AchievementMgr::CompletedAchievement(%u). %s %s",
+        achievement->ID, GetOwner()->GetGUID().ToString().c_str(), GetOwner()->GetName().c_str());
 
     CompletedAchievementData& ca = m_completedAchievements[achievement->ID];
     ca.date = time(NULL);
@@ -1977,7 +1981,7 @@ void AchievementMgr<Player>::CompletedAchievement(AchievementEntry const* achiev
             draft.AddItem(item);
         }
 
-        draft.SendMailTo(trans, GetOwner(), MailSender(MAIL_CREATURE, reward->sender));
+        draft.SendMailTo(trans, GetOwner(), MailSender(MAIL_CREATURE, uint64(reward->sender)));
         CharacterDatabase.CommitTransaction(trans);
     }
 }
@@ -2031,6 +2035,7 @@ struct VisibleAchievementPred
 template<class T>
 void AchievementMgr<T>::SendAllAchievementData(Player* /*receiver*/) const
 {
+    /*
     VisibleAchievementPred isVisible;
     size_t numCriteria = m_criteriaProgress.size();
     size_t numAchievements = std::count_if(m_completedAchievements.begin(), m_completedAchievements.end(), isVisible);
@@ -2042,7 +2047,7 @@ void AchievementMgr<T>::SendAllAchievementData(Player* /*receiver*/) const
     data.WriteBits(numCriteria, 21);
     for (CriteriaProgressMap::const_iterator itr = m_criteriaProgress.begin(); itr != m_criteriaProgress.end(); ++itr)
     {
-        counter.Set(itr->second.counter);
+        counter.SetRawValue(itr->second.counter);
 
         data.WriteBit(guid[4]);
         data.WriteBit(counter[3]);
@@ -2098,6 +2103,7 @@ void AchievementMgr<T>::SendAllAchievementData(Player* /*receiver*/) const
     }
 
     SendPacket(&data);
+    */
 }
 
 template<>
@@ -2126,6 +2132,7 @@ void AchievementMgr<Guild>::SendAllAchievementData(Player* receiver) const
 template<>
 void AchievementMgr<Player>::SendAchievementInfo(Player* receiver, uint32 /*achievementId = 0 */) const
 {
+    /*
     ObjectGuid guid = GetOwner()->GetGUID();
     ObjectGuid counter;
 
@@ -2145,7 +2152,7 @@ void AchievementMgr<Player>::SendAchievementInfo(Player* receiver, uint32 /*achi
     data.WriteBit(guid[2]);
     for (CriteriaProgressMap::const_iterator itr = m_criteriaProgress.begin(); itr != m_criteriaProgress.end(); ++itr)
     {
-        counter.Set(itr->second.counter);
+        counter.SetRawValue(itr->second.counter);
 
         data.WriteBit(counter[5]);
         data.WriteBit(counter[3]);
@@ -2211,11 +2218,13 @@ void AchievementMgr<Player>::SendAchievementInfo(Player* receiver, uint32 /*achi
     data.WriteByteSeq(guid[5]);
 
     receiver->GetSession()->SendPacket(&data);
+    */
 }
 
 template<>
 void AchievementMgr<Guild>::SendAchievementInfo(Player* receiver, uint32 achievementId /*= 0*/) const
 {
+    /*
     //will send response to criteria progress request
     AchievementCriteriaEntryList const* criteria = sAchievementMgr->GetAchievementCriteriaByAchievement(achievementId);
     if (!criteria)
@@ -2252,7 +2261,7 @@ void AchievementMgr<Guild>::SendAchievementInfo(Player* receiver, uint32 achieve
         if (progress == m_criteriaProgress.end())
             continue;
 
-        counter.Set(progress->second.counter);
+        counter.SetRawValue(progress->second.counter);
         guid = progress->second.CompletedGUID;
 
         criteriaBits.WriteBit(counter[4]);
@@ -2301,6 +2310,7 @@ void AchievementMgr<Guild>::SendAchievementInfo(Player* receiver, uint32 achieve
         data.append(criteriaData);
 
     receiver->GetSession()->SendPacket(&data);
+    */
 }
 
 template<class T>

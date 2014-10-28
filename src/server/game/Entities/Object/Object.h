@@ -99,10 +99,7 @@ class Object
         virtual void AddToWorld();
         virtual void RemoveFromWorld();
 
-        ObjectGuid GetGUID() const { return GetGuidValue(OBJECT_FIELD_GUID); }
-        uint32 GetGUIDLow() const { return GetGuidValue(OBJECT_FIELD_GUID).GetCounter(); }
-        uint32 GetGUIDMid() const { return GetGuidValue(OBJECT_FIELD_GUID).GetEntry(); }
-        uint32 GetGUIDHigh() const { return GetGuidValue(OBJECT_FIELD_GUID).GetHigh(); }
+        ObjectGuid const& GetGUID() const { return GetGuidValue(OBJECT_FIELD_GUID); }
         PackedGuid const& GetPackGUID() const { return m_PackGUID; }
         uint32 GetEntry() const { return GetUInt32Value(OBJECT_FIELD_ENTRY); }
         void SetEntry(uint32 entry) { SetUInt32Value(OBJECT_FIELD_ENTRY, entry); }
@@ -127,7 +124,7 @@ class Object
         float GetFloatValue(uint16 index) const;
         uint8 GetByteValue(uint16 index, uint8 offset) const;
         uint16 GetUInt16Value(uint16 index, uint8 offset) const;
-        ObjectGuid GetGuidValue(uint16 index) const;
+        ObjectGuid const& GetGuidValue(uint16 index) const;
 
         void SetInt32Value(uint16 index, int32 value);
         void SetUInt32Value(uint16 index, uint32 value);
@@ -137,12 +134,12 @@ class Object
         void SetByteValue(uint16 index, uint8 offset, uint8 value);
         void SetUInt16Value(uint16 index, uint8 offset, uint16 value);
         void SetInt16Value(uint16 index, uint8 offset, int16 value) { SetUInt16Value(index, offset, (uint16)value); }
-        void SetGuidValue(uint16 index, ObjectGuid value);
+        void SetGuidValue(uint16 index, ObjectGuid const& value);
         void SetStatFloatValue(uint16 index, float value);
         void SetStatInt32Value(uint16 index, int32 value);
 
-        bool AddGuidValue(uint16 index, ObjectGuid value);
-        bool RemoveGuidValue(uint16 index, ObjectGuid value);
+        bool AddGuidValue(uint16 index, ObjectGuid const& value);
+        bool RemoveGuidValue(uint16 index, ObjectGuid const& value);
 
         void ApplyModUInt32Value(uint16 index, int32 val, bool apply);
         void ApplyModInt32Value(uint16 index, int32 val, bool apply);
@@ -167,6 +164,12 @@ class Object
         void ToggleFlag64(uint16 index, uint64 flag);
         bool HasFlag64(uint16 index, uint64 flag) const;
         void ApplyModFlag64(uint16 index, uint64 flag, bool apply);
+
+        std::vector<uint32> const& GetDynamicValues(uint16 index) const;
+        void AddDynamicValue(uint16 index, uint32 value);
+        void RemoveDynamicValue(uint16 index, uint32 value);
+        void ClearDynamicValue(uint16 index);
+        void SetDynamicValue(uint16 index, uint8 offset, uint32 value);
 
         void ClearUpdateMask(bool remove);
 
@@ -208,14 +211,16 @@ class Object
         Object();
 
         void _InitValues();
-        void _Create(uint32 guidlow, uint32 entry, HighGuid guidhigh);
+        void _Create(ObjectGuid::LowType guidlow, uint32 entry, HighGuid guidhigh);
         std::string _ConcatFields(uint16 startIndex, uint16 size) const;
         void _LoadIntoDataField(std::string const& data, uint32 startOffset, uint32 count);
 
         uint32 GetUpdateFieldData(Player const* target, uint32*& flags) const;
+        uint32 GetDynamicUpdateFieldData(Player const* target, uint32*& flags) const;
 
         void BuildMovementUpdate(ByteBuffer* data, uint16 flags) const;
         virtual void BuildValuesUpdate(uint8 updatetype, ByteBuffer* data, Player* target) const;
+        virtual void BuildDynamicValuesUpdate(uint8 updatetype, ByteBuffer* data, Player* target) const;
 
         uint16 m_objectType;
 
@@ -229,9 +234,14 @@ class Object
             float  *m_floatValues;
         };
 
+        std::vector<uint32>* _dynamicValues;
+
         UpdateMask _changesMask;
+        UpdateMask _dynamicChangesMask;
+        UpdateMask* _dynamicChangesArrayMask;
 
         uint16 m_valuesCount;
+        uint16 _dynamicValuesCount;
 
         uint16 _fieldNotifyFlags;
 
@@ -342,6 +352,7 @@ struct Position
         { return std::sqrt(GetExactDistSq(pos)); }
 
     void GetPositionOffsetTo(Position const & endPos, Position & retOffset) const;
+    Position GetPositionWithOffset(Position const& offset) const;
 
     float GetAngle(Position const* pos) const;
     float GetAngle(float x, float y) const;
@@ -474,12 +485,23 @@ struct MovementInfo
 class WorldLocation : public Position
 {
     public:
-        explicit WorldLocation(uint32 _mapid = MAPID_INVALID, float _x = 0, float _y = 0, float _z = 0, float _o = 0)
-            : m_mapId(_mapid) { Relocate(_x, _y, _z, _o); }
-        WorldLocation(const WorldLocation &loc) : Position(loc) { WorldRelocate(loc); }
+        explicit WorldLocation(uint32 _mapId = MAPID_INVALID, float _x = 0.f, float _y = 0.f, float _z = 0.f, float _o = 0.f)
+            : Position(_x, _y, _z, _o), m_mapId(_mapId) { }
 
-        void WorldRelocate(const WorldLocation &loc)
-            { m_mapId = loc.GetMapId(); Relocate(loc); }
+        WorldLocation(WorldLocation const& loc)
+            : Position(loc), m_mapId(loc.GetMapId()) { }
+
+        void WorldRelocate(WorldLocation const& loc)
+        {
+            m_mapId = loc.GetMapId();
+            Relocate(loc);
+        }
+
+        void WorldRelocate(uint32 _mapId = MAPID_INVALID, float _x = 0.f, float _y = 0.f, float _z = 0.f, float _o = 0.f)
+        {
+            m_mapId = _mapId;
+            Relocate(_x, _y, _z, _o);
+        }
 
         WorldLocation GetWorldLocation() const
         {
@@ -569,7 +591,7 @@ class WorldObject : public Object, public WorldLocation
 
         virtual void Update (uint32 /*time_diff*/) { }
 
-        void _Create(uint32 guidlow, HighGuid guidhigh, uint32 phaseMask);
+        void _Create(ObjectGuid::LowType guidlow, HighGuid guidhigh, uint32 phaseMask);
         virtual void RemoveFromWorld() override;
 
         void GetNearPoint2D(float &x, float &y, float distance, float absAngle) const;

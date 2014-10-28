@@ -29,6 +29,7 @@ AreaTrigger::AreaTrigger() : WorldObject(false), _duration(0)
     m_updateFlag = UPDATEFLAG_STATIONARY_POSITION;
 
     m_valuesCount = AREATRIGGER_END;
+    _dynamicValuesCount = AREATRIGGER_DYNAMIC_END;
 }
 
 AreaTrigger::~AreaTrigger()
@@ -55,7 +56,7 @@ void AreaTrigger::RemoveFromWorld()
     }
 }
 
-bool AreaTrigger::CreateAreaTrigger(uint32 guidlow, uint32 triggerEntry, Unit* caster, SpellInfo const* spell, Position const& pos)
+bool AreaTrigger::CreateAreaTrigger(ObjectGuid::LowType guidlow, uint32 triggerEntry, Unit* caster, SpellInfo const* spell, Position const& pos)
 {
     SetMap(caster->GetMap());
     Relocate(pos);
@@ -65,18 +66,16 @@ bool AreaTrigger::CreateAreaTrigger(uint32 guidlow, uint32 triggerEntry, Unit* c
         return false;
     }
 
-    WorldObject::_Create(guidlow, HIGHGUID_AREATRIGGER, caster->GetPhaseMask());
+    WorldObject::_Create(guidlow, HighGuid::AreaTrigger, caster->GetPhaseMask());
 
     SetEntry(triggerEntry);
     SetDuration(spell->GetDuration());
     SetObjectScale(1);
 
+    SetGuidValue(AREATRIGGER_CASTER, caster->GetGUID());
     SetUInt32Value(AREATRIGGER_SPELLID, spell->Id);
     SetUInt32Value(AREATRIGGER_SPELLVISUALID, spell->SpellVisual[0]);
     SetUInt32Value(AREATRIGGER_DURATION, spell->GetDuration());
-    SetFloatValue(AREATRIGGER_FINAL_POS + 0, pos.GetPositionX());
-    SetFloatValue(AREATRIGGER_FINAL_POS + 1, pos.GetPositionY());
-    SetFloatValue(AREATRIGGER_FINAL_POS + 2, pos.GetPositionZ());
 
     for (auto phase : caster->GetPhases())
         SetInPhase(phase, false, true);

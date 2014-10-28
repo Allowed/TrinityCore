@@ -34,13 +34,22 @@ using boost::asio::ip::tcp;
 
 #pragma pack(push, 1)
 
-struct ClientPktHeader
+union ClientPktHeader
 {
-    uint16 size;
-    uint32 cmd;
+    struct
+    {
+        uint16 Size;
+        uint32 Command;
+    } Setup;
 
-    bool IsValidSize() const { return size >= 4 && size < 10240; }
-    bool IsValidOpcode() const { return cmd < NUM_OPCODE_HANDLERS; }
+    struct
+    {
+        uint32 Command : 13;
+        uint32 Size : 19;
+    } Normal;
+
+    static bool IsValidSize(uint32 size) { return size < 10240; }
+    static bool IsValidOpcode(uint32 opcode) { return opcode < NUM_OPCODE_HANDLERS; }
 };
 
 #pragma pack(pop)
@@ -72,6 +81,8 @@ private:
     void SendAuthResponseError(uint8 code);
 
     void HandlePing(WorldPacket& recvPacket);
+
+    void ExtractOpcodeAndSize(ClientPktHeader const* header, uint32& opcode, uint32& size) const;
 
     uint32 _authSeed;
     WorldPacketCrypt _authCrypt;
