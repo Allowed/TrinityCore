@@ -389,7 +389,7 @@ void fixNULLfields(std::string &line)
 DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, std::string name, ObjectGuid::LowType guid)
 {
     uint32 charcount = AccountMgr::GetCharactersCount(account);
-    if (charcount >= 10)
+    if (charcount >= sWorld->getIntConfig(CONFIG_CHARACTERS_PER_REALM))
         return DUMP_TOO_MANY_CHARS;
 
     FILE* fin = fopen(file.c_str(), "r");
@@ -519,10 +519,10 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
                 if (!changenth(line, 2, chraccount))        // characters.account update
                     ROLLBACK(DUMP_FILE_BROKEN);
 
-                race = uint8(atol(getnth(line, 4).c_str()));
-                playerClass = uint8(atol(getnth(line, 5).c_str()));
-                gender = uint8(atol(getnth(line, 6).c_str()));
-                level = uint8(atol(getnth(line, 7).c_str()));
+                race = uint8(atoul(getnth(line, 4).c_str()));
+                playerClass = uint8(atoul(getnth(line, 5).c_str()));
+                gender = uint8(atoul(getnth(line, 6).c_str()));
+                level = uint8(atoul(getnth(line, 7).c_str()));
                 if (name.empty())
                 {
                     // check if the original name already exists
@@ -666,7 +666,7 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
     CharacterDatabase.CommitTransaction(trans);
 
     // in case of name conflict player has to rename at login anyway
-    sWorld->AddCharacterNameData(ObjectGuid(HighGuid::Player, guid), name, gender, race, playerClass, level);
+    sWorld->AddCharacterInfo(ObjectGuid::Create<HighGuid::Player>(guid), name, gender, race, playerClass, level, false);
 
     sObjectMgr->GetGenerator<HighGuid::Item>()->Set(sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed() + items.size());
     sObjectMgr->_mailId     += mails.size();

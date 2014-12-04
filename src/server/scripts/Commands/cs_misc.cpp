@@ -78,6 +78,7 @@ public:
             { "pinfo",            rbac::RBAC_PERM_COMMAND_PINFO,             true, &HandlePInfoCommand,            "", NULL },
             { "playall",          rbac::RBAC_PERM_COMMAND_PLAYALL,          false, &HandlePlayAllCommand,          "", NULL },
             { "possess",          rbac::RBAC_PERM_COMMAND_POSSESS,          false, &HandlePossessCommand,          "", NULL },
+            { "pvpstats",         rbac::RBAC_PERM_COMMAND_PVPSTATS,          true, &HandlePvPstatsCommand,         "", NULL },
             { "recall",           rbac::RBAC_PERM_COMMAND_RECALL,           false, &HandleRecallCommand,           "", NULL },
             { "repairitems",      rbac::RBAC_PERM_COMMAND_REPAIRITEMS,       true, &HandleRepairitemsCommand,      "", NULL },
             { "respawn",          rbac::RBAC_PERM_COMMAND_RESPAWN,          false, &HandleRespawnCommand,          "", NULL },
@@ -98,6 +99,35 @@ public:
             { NULL,               0,                                  false, NULL,                           "", NULL }
         };
         return commandTable;
+    }
+
+    static bool HandlePvPstatsCommand(ChatHandler * handler, char const* /*args*/)
+    {
+        if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_STORE_STATISTICS_ENABLE))
+        {
+            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PVPSTATS_FACTIONS_OVERALL);
+            PreparedQueryResult result = CharacterDatabase.Query(stmt);
+
+            if (result)
+            {
+                Field* fields = result->Fetch();
+                uint32 horde_victories = fields[1].GetUInt32();
+
+                if (!(result->NextRow()))
+                    return false;
+
+                fields = result->Fetch();
+                uint32 alliance_victories = fields[1].GetUInt32();
+
+                handler->PSendSysMessage(LANG_PVPSTATS, alliance_victories, horde_victories);
+            }
+            else
+                return false;
+        }
+        else
+            handler->PSendSysMessage(LANG_PVPSTATS_DISABLED);
+
+        return true;
     }
 
     static bool HandleDevCommand(ChatHandler* handler, char const* args)
@@ -202,9 +232,9 @@ public:
         char const* unknown = handler->GetTrinityString(LANG_UNKNOWN);
 
         handler->PSendSysMessage(LANG_MAP_POSITION,
-            mapId, (mapEntry ? mapEntry->name : unknown),
-            zoneId, (zoneEntry ? zoneEntry->area_name : unknown),
-            areaId, (areaEntry ? areaEntry->area_name : unknown),
+            mapId, (mapEntry ? mapEntry->MapName_lang : unknown),
+            zoneId, (zoneEntry ? zoneEntry->ZoneName : unknown),
+            areaId, (areaEntry ? areaEntry->ZoneName : unknown),
             object->GetPhaseMask(),
             object->GetPositionX(), object->GetPositionY(), object->GetPositionZ(), object->GetOrientation(),
             cell.GridX(), cell.GridY(), cell.CellX(), cell.CellY(), object->GetInstanceId(),
@@ -930,7 +960,7 @@ public:
         uint32 zoneId = player->GetZoneId();
 
         AreaTableEntry const* areaEntry = GetAreaEntryByAreaID(zoneId);
-        if (!areaEntry || areaEntry->zone !=0)
+        if (!areaEntry || areaEntry->ParentAreaID !=0)
         {
             handler->PSendSysMessage(LANG_COMMAND_GRAVEYARDWRONGZONE, graveyardId, zoneId);
             handler->SetSentErrorMessage(true);
@@ -1105,7 +1135,7 @@ public:
             char const* id = handler->extractKeyFromLink((char*)args, "Hitem");
             if (!id)
                 return false;
-            itemId = uint32(atol(id));
+            itemId = atoul(id);
         }
 
         char const* ccount = strtok(NULL, " ");
@@ -1187,7 +1217,7 @@ public:
         if (!id)
             return false;
 
-        uint32 itemSetId = atol(id);
+        uint32 itemSetId = atoul(id);
 
         // prevent generation all items with itemset field value '0'
         if (itemSetId == 0)
@@ -1328,7 +1358,7 @@ public:
             return false;
         }
 
-        int32 level = uint32(atol(levelStr));
+        int32 level = atol(levelStr);
 
         Player* target = handler->getSelectedPlayer();
         if (!target)
@@ -1350,7 +1380,7 @@ public:
 
         // If our target does not yet have the skill they are trying to add to them, the chosen level also becomes
         // the max level of the new profession.
-        uint16 max = maxPureSkill ? atol(maxPureSkill) : targetHasSkill ? target->GetPureMaxSkillValue(skill) : uint16(level);
+        uint16 max = maxPureSkill ? atoul(maxPureSkill) : targetHasSkill ? target->GetPureMaxSkillValue(skill) : uint16(level);
 
         if (level <= 0 || level > max || max <= 0)
             return false;
@@ -1359,7 +1389,7 @@ public:
         // add the skill to the player's book with step 1 (which is the first rank, in most cases something
         // like 'Apprentice <skill>'.
         target->SetSkill(skill, targetHasSkill ? target->GetSkillStep(skill) : 1, level, max);
-        handler->PSendSysMessage(LANG_SET_SKILL, skill, skillLine->name, handler->GetNameLink(target).c_str(), level, max);
+        handler->PSendSysMessage(LANG_SET_SKILL, skill, skillLine->DisplayName_lang, handler->GetNameLink(target).c_str(), level, max);
         return true;
     }
 
@@ -1390,10 +1420,10 @@ public:
         PreparedStatement* stmt = NULL;
 
         // To make sure we get a target, we convert our guid to an omniversal...
-        ObjectGuid parseGUID(HighGuid::Player, strtoull(args, nullptr, 10));
+        ObjectGuid parseGUID = ObjectGuid::Create<HighGuid::Player>(strtoull(args, nullptr, 10));
 
         // ... and make sure we get a target, somehow.
-        if (sObjectMgr->GetPlayerNameByGUID(parseGUID, targetName))
+        if (ObjectMgr::GetPlayerNameByGUID(parseGUID, targetName))
         {
             target = ObjectAccessor::FindPlayer(parseGUID);
             targetGuid = parseGUID;
@@ -1706,15 +1736,15 @@ public:
         AreaTableEntry const* area = GetAreaEntryByAreaID(areaId);
         if (area)
         {
-            areaName = area->area_name;
+            areaName = area->ZoneName;
 
-            AreaTableEntry const* zone = GetAreaEntryByAreaID(area->zone);
+            AreaTableEntry const* zone = GetAreaEntryByAreaID(area->ParentAreaID);
             if (zone)
-                zoneName = zone->area_name;
+                zoneName = zone->ZoneName;
         }
 
         if (target)
-            handler->PSendSysMessage(LANG_PINFO_CHR_MAP, map->name,
+            handler->PSendSysMessage(LANG_PINFO_CHR_MAP, map->MapName_lang,
                 (!zoneName.empty() ? zoneName.c_str() : handler->GetTrinityString(LANG_UNKNOWN)),
                 (!areaName.empty() ? areaName.c_str() : handler->GetTrinityString(LANG_UNKNOWN)));
 
@@ -1749,7 +1779,7 @@ public:
             uint32 totalmail      = uint32(fields[1].GetUInt64());
 
             // ... we have to convert it from Char to int. We can use totalmail as it is
-            rmailint = atol(readmail.c_str());
+            rmailint = atoul(readmail.c_str());
 
             // Output XXI. LANG_INFO_CHR_MAILS if at least one mail is given
             if (totalmail >= 1)
@@ -1806,7 +1836,7 @@ public:
         if (!handler->extractPlayerTarget(nameStr, &target, &targetGuid, &targetName))
             return false;
 
-        uint32 accountId = target ? target->GetSession()->GetAccountId() : sObjectMgr->GetPlayerAccountIdByGUID(targetGuid);
+        uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
 
         // find only player from same account if any
         if (!target)
@@ -1875,7 +1905,7 @@ public:
         if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        uint32 accountId = target ? target->GetSession()->GetAccountId() : sObjectMgr->GetPlayerAccountIdByGUID(targetGuid);
+        uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
 
         // find only player from same account if any
         if (!target)
@@ -1949,7 +1979,7 @@ public:
         PreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_MUTE_INFO);
         stmt->setUInt16(0, accountId);
         PreparedQueryResult result = LoginDatabase.Query(stmt);
-        
+
         if (!result)
         {
             handler->PSendSysMessage(LANG_COMMAND_MUTEHISTORY_EMPTY, accountName);
@@ -1960,16 +1990,16 @@ public:
         do
         {
             Field* fields = result->Fetch();
-            
+
             // we have to manually set the string for mutedate
             time_t sqlTime = fields[0].GetUInt32();
             tm timeinfo;
             char buffer[80];
-            
+
             // set it to string
             localtime_r(&sqlTime, &timeinfo);
             strftime(buffer, sizeof(buffer),"%Y-%m-%d %I:%M%p", &timeinfo);
-            
+
             handler->PSendSysMessage(LANG_COMMAND_MUTEHISTORY_OUTPUT, buffer, fields[1].GetUInt32(), fields[2].GetCString(), fields[3].GetCString());
         } while (result->NextRow());
         return true;
@@ -2434,7 +2464,7 @@ public:
             if (targetName)
             {
                 // Check for offline players
-                ObjectGuid guid = sObjectMgr->GetPlayerGUIDByName(name);
+                ObjectGuid guid = ObjectMgr::GetPlayerGUIDByName(name);
                 if (guid.IsEmpty())
                 {
                     handler->SendSysMessage(LANG_COMMAND_FREEZE_WRONG);

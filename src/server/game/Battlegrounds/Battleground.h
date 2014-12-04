@@ -160,7 +160,7 @@ struct BattlegroundPlayer
 {
     time_t  OfflineRemoveTime;                              // for tracking and removing offline players from queue after 5 minutes
     uint32  Team;                                           // Player's team
-    int32   PrimaryTree;                                    // Player's primary tree
+    int32   ActiveSpec;                                     // Player's active spec
 };
 
 struct BattlegroundObjectInfo
@@ -241,7 +241,7 @@ class Battleground
         /* Battleground */
         // Get methods:
         std::string const& GetName() const  { return m_Name; }
-        ObjectGuid GetGUID() { return m_Guid; }
+        uint64 GetGUID() { return m_Guid; }
         BattlegroundTypeId GetTypeID(bool GetRandom = false) const { return GetRandom ? m_RandomTypeID : m_TypeID; }
         BattlegroundBracketId GetBracketId() const { return m_BracketId; }
         uint32 GetInstanceID() const        { return m_InstanceID; }
@@ -267,7 +267,7 @@ class Battleground
         bool IsRandom() const { return m_IsRandom; }
 
         // Set methods:
-        void SetGuid(ObjectGuid newGuid)        { m_Guid = newGuid; }
+        void SetGuid(uint64 newGuid)        { m_Guid = newGuid; }
         void SetName(std::string const& name) { m_Name = name; }
         void SetTypeID(BattlegroundTypeId TypeID) { m_TypeID = TypeID; }
         void SetRandomTypeID(BattlegroundTypeId TypeID) { m_RandomTypeID = TypeID; }
@@ -347,8 +347,8 @@ class Battleground
         // Packet Transfer
         // method that should fill worldpacket with actual world states (not yet implemented for all battlegrounds!)
         virtual void FillInitialWorldStates(WorldPacket& /*data*/) { }
-        void SendPacketToTeam(uint32 TeamID, WorldPacket* packet, Player* sender = NULL, bool self = true);
-        void SendPacketToAll(WorldPacket* packet);
+        void SendPacketToTeam(uint32 TeamID, WorldPacket const* packet, Player* sender = NULL, bool self = true) const;
+        void SendPacketToAll(WorldPacket const* packet) const;
 
         void SendChatMessage(Creature* source, uint8 textId, WorldObject* target = NULL);
 
@@ -361,8 +361,7 @@ class Battleground
         void RemoveAuraOnTeam(uint32 SpellID, uint32 TeamID);
         void RewardHonorToTeam(uint32 Honor, uint32 TeamID);
         void RewardReputationToTeam(uint32 faction_id, uint32 Reputation, uint32 TeamID);
-        void UpdateWorldState(uint32 Field, uint32 Value);
-        void UpdateWorldStateForPlayer(uint32 Field, uint32 Value, Player* player);
+        void UpdateWorldState(uint32 variable, uint32 value, bool hidden = false);
         virtual void EndBattleground(uint32 winner);
         void BlockMovement(Player* player);
 
@@ -539,7 +538,7 @@ class Battleground
         bool   m_PrematureCountDown;
         uint32 m_PrematureCountDownTimer;
         std::string m_Name;
-        ObjectGuid m_Guid;
+        uint64 m_Guid;
 
         /* Pre- and post-update hooks */
 

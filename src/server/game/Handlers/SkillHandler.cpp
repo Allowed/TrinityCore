@@ -26,18 +26,21 @@
 #include "UpdateMask.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "TalentPackets.h"
 
 void WorldSession::HandleLearnTalentOpcode(WorldPacket& recvData)
 {
+    /* TODO: 6.x update packet struct (note: LearnTalent no longer has rank argument)
     uint32 talentId, requestedRank;
     recvData >> talentId >> requestedRank;
 
     if (_player->LearnTalent(talentId, requestedRank))
-        _player->SendTalentsInfoData(false);
+        _player->SendTalentsInfoData(false);*/
 }
 
 void WorldSession::HandleLearnPreviewTalents(WorldPacket& recvPacket)
 {
+    /* TODO: 6.x update packet struct
     TC_LOG_DEBUG("network", "CMSG_LEARN_PREVIEW_TALENTS");
 
     int32 tabPage;
@@ -77,7 +80,7 @@ void WorldSession::HandleLearnPreviewTalents(WorldPacket& recvPacket)
 
     _player->SendTalentsInfoData(false);
 
-    recvPacket.rfinish();
+    recvPacket.rfinish();*/
 }
 
 void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recvData)
@@ -109,7 +112,7 @@ void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recvData)
         return;
     }
 
-    _player->SendTalentsInfoData(false);
+    _player->SendTalentsInfoData();
     unit->CastSpell(_player, 14867, true);                  //spell: "Untalent Visual Effect"
 }
 
@@ -123,4 +126,37 @@ void WorldSession::HandleUnlearnSkillOpcode(WorldPacket& recvData)
         return;
 
     GetPlayer()->SetSkill(skillId, 0, 0, 0);
+}
+
+void WorldSession::HandleSetSpecializationOpcode(WorldPackets::Talent::SetSpecialization& packet)
+{
+    Player* player = GetPlayer();
+    
+    if (packet.SpecGroupIndex >= MAX_SPECIALIZATIONS)
+    {
+        TC_LOG_DEBUG("network", "WORLD: HandleSetSpecializationOpcode - specialization index %u out of range", packet.SpecGroupIndex);
+        return;
+    }
+
+    ChrSpecializationEntry const* chrSpec = sChrSpecializationByIndexStore[player->getClass()][packet.SpecGroupIndex];
+
+    if (!chrSpec)
+    {
+        TC_LOG_DEBUG("network", "WORLD: HandleSetSpecializationOpcode - specialization index %u not found", packet.SpecGroupIndex);
+        return;
+    }
+
+    if (chrSpec->ClassID != player->getClass())
+    {
+        TC_LOG_DEBUG("network", "WORLD: HandleSetSpecializationOpcode - specialization %u does not belong to class %u", chrSpec->ID, player->getClass());
+        return;
+    }
+
+    if (player->getLevel() < MIN_SPECIALIZATION_LEVEL)
+    {
+        TC_LOG_DEBUG("network", "WORLD: HandleSetSpecializationOpcode - player level too low for specializations");
+        return;
+    }
+
+    player->LearnTalentSpecialization(chrSpec->ID);
 }

@@ -33,6 +33,7 @@
 #include "CreatureAI.h"
 #include "Spell.h"
 #include "WorldSession.h"
+#include "Packets/ChatPackets.h"
 
 class Player;
 //class Map;
@@ -125,11 +126,11 @@ namespace Trinity
     struct MessageDistDeliverer
     {
         WorldObject* i_source;
-        WorldPacket* i_message;
+        WorldPacket const* i_message;
         float i_distSq;
         uint32 team;
         Player const* skipped_receiver;
-        MessageDistDeliverer(WorldObject* src, WorldPacket* msg, float dist, bool own_team_only = false, Player const* skipped = NULL)
+        MessageDistDeliverer(WorldObject* src, WorldPacket const* msg, float dist, bool own_team_only = false, Player const* skipped = NULL)
             : i_source(src), i_message(msg), i_distSq(dist * dist)
             , team(0)
             , skipped_receiver(skipped)
@@ -630,10 +631,10 @@ namespace Trinity
                 if (go->GetGOInfo()->type != GAMEOBJECT_TYPE_SPELL_FOCUS)
                     return false;
 
-                if (go->GetGOInfo()->spellFocus.focusId != i_focusId)
+                if (go->GetGOInfo()->spellFocus.spellFocusType != i_focusId)
                     return false;
 
-                float dist = go->GetGOInfo()->spellFocus.dist / 2.f;
+                float dist = go->GetGOInfo()->spellFocus.radius / 2.f;
 
                 return go->IsWithinDistInMap(i_unit, dist);
             }
@@ -649,7 +650,7 @@ namespace Trinity
             NearestGameObjectFishingHole(WorldObject const& obj, float range) : i_obj(obj), i_range(range) { }
             bool operator()(GameObject* go)
             {
-                if (go->GetGOInfo()->type == GAMEOBJECT_TYPE_FISHINGHOLE && go->isSpawned() && i_obj.IsWithinDistInMap(go, i_range) && i_obj.IsWithinDistInMap(go, (float)go->GetGOInfo()->fishinghole.radius))
+                if (go->GetGOInfo()->type == GAMEOBJECT_TYPE_FISHINGHOLE && go->isSpawned() && i_obj.IsWithinDistInMap(go, i_range) && i_obj.IsWithinDistInMap(go, (float)go->GetGOInfo()->fishingHole.radius))
                 {
                     i_range = i_obj.GetDistance(go);
                     return true;

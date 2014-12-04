@@ -105,7 +105,7 @@ public:
             if (isNumeric(searchString.c_str()))
             {
                 stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_DEL_INFO_BY_GUID);
-                stmt->setUInt64(0, uint32(atoi(searchString.c_str())));
+                stmt->setUInt64(0, strtoull(searchString.c_str(), nullptr, 10));
                 result = CharacterDatabase.Query(stmt);
             }
             // search by name
@@ -133,7 +133,7 @@ public:
 
                 DeletedInfo info;
 
-                info.guid       = ObjectGuid(HighGuid::Player, fields[0].GetUInt64());
+                info.guid       = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
                 info.name       = fields[1].GetString();
                 info.accountId  = fields[2].GetUInt32();
 
@@ -205,13 +205,13 @@ public:
 
         // check character count
         uint32 charcount = AccountMgr::GetCharactersCount(delInfo.accountId);
-        if (charcount >= 10)
+        if (charcount >= sWorld->getIntConfig(CONFIG_CHARACTERS_PER_REALM))
         {
             handler->PSendSysMessage(LANG_CHARACTER_DELETED_SKIP_FULL, delInfo.name.c_str(), delInfo.guid.ToString().c_str(), delInfo.accountId);
             return;
         }
 
-        if (!sObjectMgr->GetPlayerGUIDByName(delInfo.name).IsEmpty())
+        if (!ObjectMgr::GetPlayerGUIDByName(delInfo.name).IsEmpty())
         {
             handler->PSendSysMessage(LANG_CHARACTER_DELETED_SKIP_NAME, delInfo.name.c_str(), delInfo.guid.ToString().c_str(), delInfo.accountId);
             return;
@@ -223,10 +223,7 @@ public:
         stmt->setUInt64(2, delInfo.guid.GetCounter());
         CharacterDatabase.Execute(stmt);
 
-        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_NAME_DATA);
-        stmt->setUInt64(0, delInfo.guid.GetCounter());
-        if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
-            sWorld->AddCharacterNameData(delInfo.guid, delInfo.name, (*result)[2].GetUInt8(), (*result)[0].GetUInt8(), (*result)[1].GetUInt8(), (*result)[3].GetUInt8());
+        sWorld->UpdateCharacterInfoDeleted(delInfo.guid, false, &delInfo.name);
     }
 
     static void HandleCharacterLevel(Player* player, ObjectGuid playerGuid, uint32 oldLevel, uint32 newLevel, ChatHandler* handler)
@@ -277,11 +274,11 @@ public:
 
             if (titleInfo && target->HasTitle(titleInfo))
             {
-                std::string name = target->getGender() == GENDER_MALE ? titleInfo->nameMale : titleInfo->nameFemale;
+                std::string name = target->getGender() == GENDER_MALE ? titleInfo->NameMale_lang : titleInfo->NameFemale_lang;
                 if (name.empty())
                     continue;
 
-                char const* activeStr = target->GetUInt32Value(PLAYER_CHOSEN_TITLE) == titleInfo->bit_index
+                char const* activeStr = target->GetUInt32Value(PLAYER_CHOSEN_TITLE) == titleInfo->MaskID
                 ? handler->GetTrinityString(LANG_ACTIVE)
                 : "";
 
@@ -290,9 +287,9 @@ public:
 
                 // send title in "id (idx:idx) - [namedlink locale]" format
                 if (handler->GetSession())
-                    handler->PSendSysMessage(LANG_TITLE_LIST_CHAT, id, titleInfo->bit_index, id, titleNameStr, localeNames[loc], knownStr, activeStr);
+                    handler->PSendSysMessage(LANG_TITLE_LIST_CHAT, id, titleInfo->MaskID, id, titleNameStr, localeNames[loc], knownStr, activeStr);
                 else
-                    handler->PSendSysMessage(LANG_TITLE_LIST_CONSOLE, id, titleInfo->bit_index, name.c_str(), localeNames[loc], knownStr, activeStr);
+                    handler->PSendSysMessage(LANG_TITLE_LIST_CONSOLE, id, titleInfo->MaskID, name.c_str(), localeNames[loc], knownStr, activeStr);
             }
         }
 
@@ -329,7 +326,7 @@ public:
                 if (handler->HasLowerSecurity(NULL, targetGuid))
                     return false;
 
-                sObjectMgr->GetPlayerNameByGUID(targetGuid, playerOldName);
+                ObjectMgr::GetPlayerNameByGUID(targetGuid, playerOldName);
             }
 
             if (!normalizePlayerName(newName))
@@ -367,7 +364,7 @@ public:
             }
 
             // Remove declined name from db
-            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_DECLINED_NAME);
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_DECLINED_NAME);
             stmt->setUInt64(0, targetGuid.GetCounter());
             CharacterDatabase.Execute(stmt);
 
@@ -386,14 +383,14 @@ public:
                 CharacterDatabase.Execute(stmt);
             }
 
-            sWorld->UpdateCharacterNameData(targetGuid, newName);
+            sWorld->UpdateCharacterInfo(targetGuid, newName);
 
             handler->PSendSysMessage(LANG_RENAME_PLAYER_WITH_NEW_NAME, playerOldName.c_str(), newName.c_str());
 
             if (WorldSession* session = handler->GetSession())
             {
                 if (Player* player = session->GetPlayer())
-                    sLog->outCommand(session->GetAccountId(), "GM %s (Account: %u) forced rename %s to player %s (Account: %u)", player->GetName().c_str(), session->GetAccountId(), newName.c_str(), playerOldName.c_str(), sObjectMgr->GetPlayerAccountIdByGUID(targetGuid));
+                    sLog->outCommand(session->GetAccountId(), "GM %s (Account: %u) forced rename %s to player %s (Account: %u)", player->GetName().c_str(), session->GetAccountId(), newName.c_str(), playerOldName.c_str(), ObjectMgr::GetPlayerAccountIdByGUID(targetGuid));
             }
             else
                 sLog->outCommand(0, "CONSOLE forced rename '%s' to '%s' (%s)", playerOldName.c_str(), newName.c_str(), targetGuid.ToString().c_str());
@@ -566,7 +563,7 @@ public:
         {
             FactionState const& faction = itr->second;
             FactionEntry const* factionEntry = sFactionStore.LookupEntry(faction.ID);
-            char const* factionName = factionEntry ? factionEntry->name : "#Not found#";
+            char const* factionName = factionEntry ? factionEntry->Name_lang : "#Not found#";
             ReputationRank rank = target->GetReputationMgr().GetRank(factionEntry);
             std::string rankName = handler->GetTrinityString(ReputationRankStrIndex[rank]);
             std::ostringstream ss;
@@ -785,14 +782,14 @@ public:
         }
         else
         {
-            characterGuid = sObjectMgr->GetPlayerGUIDByName(characterName);
+            characterGuid = ObjectMgr::GetPlayerGUIDByName(characterName);
             if (!characterGuid)
             {
                 handler->PSendSysMessage(LANG_NO_PLAYER, characterName.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            accountId = sObjectMgr->GetPlayerAccountIdByGUID(characterGuid);
+            accountId = ObjectMgr::GetPlayerAccountIdByGUID(characterGuid);
         }
 
         std::string accountName;
@@ -921,7 +918,7 @@ public:
                 return false;
             }
 
-            if (sObjectMgr->GetPlayerAccountIdByGUID(ObjectGuid(HighGuid::Player, guid)))
+            if (ObjectMgr::GetPlayerAccountIdByGUID(ObjectGuid::Create<HighGuid::Player>(guid)))
             {
                 handler->PSendSysMessage(LANG_CHARACTER_GUID_IN_USE, guid);
                 handler->SetSentErrorMessage(true);
@@ -969,7 +966,7 @@ public:
         ObjectGuid guid;
         // character name can't start from number
         if (isNumeric(playerStr))
-            guid = ObjectGuid(HighGuid::Player, strtoull(playerStr, nullptr, 10));
+            guid = ObjectGuid::Create<HighGuid::Player>(strtoull(playerStr, nullptr, 10));
         else
         {
             std::string name = handler->extractPlayerNameFromLink(playerStr);
@@ -980,10 +977,10 @@ public:
                 return false;
             }
 
-            guid = sObjectMgr->GetPlayerGUIDByName(name);
+            guid = ObjectMgr::GetPlayerGUIDByName(name);
         }
 
-        if (!sObjectMgr->GetPlayerAccountIdByGUID(guid))
+        if (!ObjectMgr::GetPlayerAccountIdByGUID(guid))
         {
             handler->PSendSysMessage(LANG_PLAYER_NOT_FOUND);
             handler->SetSentErrorMessage(true);

@@ -31,6 +31,7 @@ EndScriptData */
 #include "WorldPacket.h"
 #include "Chat.h"
 #include "WorldSession.h"
+#include "Packets/ChatPackets.h"
 
 /* Battle of Mount Hyjal encounters:
 0 - Rage Winterchill event
@@ -105,14 +106,32 @@ public:
         {
             switch (creature->GetEntry())
             {
-                case RAGE_WINTERCHILL: RageWinterchill = creature->GetGUID(); break;
-                case ANETHERON:        Anetheron = creature->GetGUID(); break;
-                case KAZROGAL:         Kazrogal = creature->GetGUID();  break;
-                case AZGALOR:          Azgalor = creature->GetGUID(); break;
-                case ARCHIMONDE:       Archimonde = creature->GetGUID(); break;
-                case JAINA:            JainaProudmoore = creature->GetGUID(); break;
-                case THRALL:           Thrall = creature->GetGUID(); break;
-                case TYRANDE:          TyrandeWhisperwind = creature->GetGUID(); break;
+                case RAGE_WINTERCHILL:
+                    RageWinterchill = creature->GetGUID();
+                    break;
+                case ANETHERON:
+                    Anetheron = creature->GetGUID();
+                    break;
+                case KAZROGAL:
+                    Kazrogal = creature->GetGUID();
+                    break;
+                case AZGALOR:
+                    Azgalor = creature->GetGUID();
+                    break;
+                case ARCHIMONDE:
+                    Archimonde = creature->GetGUID();
+                    if (GetData(DATA_AZGALOREVENT) != DONE)
+                        creature->SetVisible(false);
+                    break;
+                case JAINA:
+                    JainaProudmoore = creature->GetGUID();
+                    break;
+                case THRALL:
+                    Thrall = creature->GetGUID();
+                    break;
+                case TYRANDE:
+                    TyrandeWhisperwind = creature->GetGUID();
+                    break;
             }
         }
 
@@ -151,6 +170,9 @@ public:
                         m_auiEncounter[3] = data;
                         if (data == DONE)
                         {
+                            if (Creature* archimonde = instance->GetCreature(Archimonde))
+                                archimonde->SetVisible(true);
+
                             if (ArchiYell)
                                 break;
 
@@ -173,10 +195,9 @@ public:
                                     {
                                          if (Player* player = i->GetSource())
                                          {
-                                            WorldPacket packet;
-
-                                            ChatHandler::BuildChatPacket(packet, CHAT_MSG_MONSTER_YELL, LANG_UNIVERSAL, unit, player, YELL_EFFORTS);
-                                            player->SendDirectMessage(&packet);
+                                            WorldPackets::Chat::Chat packet;
+                                            ChatHandler::BuildChatPacket(&packet, CHAT_MSG_MONSTER_YELL, LANG_UNIVERSAL, unit, player, YELL_EFFORTS);
+                                            player->SendDirectMessage(packet.Write());
                                             player->PlayDirectSound(10986, player);
                                          }
                                     }

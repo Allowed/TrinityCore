@@ -28,6 +28,8 @@
 #include "ObjectAccessor.h"
 #include "SpellInfo.h"
 #include "DB2Stores.h"
+#include "NPCPackets.h"
+#include "ItemPackets.h"
 #include <vector>
 
 void WorldSession::HandleSplitItemOpcode(WorldPacket& recvData)
@@ -288,7 +290,7 @@ void WorldSession::HandleDestroyItemOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (pItem->GetTemplate()->Flags & ITEM_PROTO_FLAG_INDESTRUCTIBLE)
+    if (pItem->GetTemplate()->Flags[0] & ITEM_PROTO_FLAG_INDESTRUCTIBLE)
     {
         _player->SendEquipError(EQUIP_ERR_DROP_BOUND_ITEM, NULL, NULL);
         return;
@@ -560,18 +562,14 @@ void WorldSession::HandleBuyItemOpcode(WorldPacket& recvData)
         TC_LOG_DEBUG("network", "WORLD: received wrong itemType (%u) in HandleBuyItemOpcode", itemType);
 }
 
-void WorldSession::HandleListInventoryOpcode(WorldPacket& recvData)
+void WorldSession::HandleListInventoryOpcode(WorldPackets::NPC::Hello& packet)
 {
-    ObjectGuid guid;
-
-    recvData >> guid;
+    TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_LIST_INVENTORY");
 
     if (!GetPlayer()->IsAlive())
         return;
 
-    TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_LIST_INVENTORY");
-
-    SendListInventory(guid);
+    SendListInventory(packet.Unit);
 }
 
 void WorldSession::SendListInventory(ObjectGuid vendorGuid)
@@ -597,12 +595,10 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
     VendorItemData const* vendorItems = vendor->GetVendorItems();
     uint32 rawItemCount = vendorItems ? vendorItems->GetItemCount() : 0;
 
-    //if (rawItemCount > 300),
-    //    rawItemCount = 300; // client cap but uint8 max value is 255
+    WorldPackets::NPC::VendorInventory packet;
+    packet.Vendor = vendor->GetGUID();
 
-    ByteBuffer itemsData(32 * rawItemCount);
-    std::vector<bool> enablers;
-    enablers.reserve(2 * rawItemCount);
+    packet.Items.resize(rawItemCount);
 
     const float discountMod = _player->GetReputationPriceDiscount(vendor);
     uint8 count = 0;
@@ -612,13 +608,15 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
         if (!vendorItem)
             continue;
 
+        WorldPackets::NPC::VendorItem& item = packet.Items[count];
+
         if (vendorItem->Type == ITEM_VENDOR_TYPE_ITEM)
         {
             ItemTemplate const* itemTemplate = sObjectMgr->GetItemTemplate(vendorItem->item);
             if (!itemTemplate)
                 continue;
 
-            uint32 leftInStock = !vendorItem->maxcount ? 0xFFFFFFFF : vendor->GetVendorItemCurrentCount(vendorItem);
+            int32 leftInStock = !vendorItem->maxcount ? -1 : vendor->GetVendorItemCurrentCount(vendorItem);
             if (!_player->IsGameMaster()) // ignore conditions if GM on
             {
                 // Respect allowed class
@@ -626,8 +624,8 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
                     continue;
 
                 // Only display items in vendor lists for the team the player is on
-                if ((itemTemplate->Flags2 & ITEM_FLAGS_EXTRA_HORDE_ONLY && _player->GetTeam() == ALLIANCE) ||
-                    (itemTemplate->Flags2 & ITEM_FLAGS_EXTRA_ALLIANCE_ONLY && _player->GetTeam() == HORDE))
+                if ((itemTemplate->Flags[1] & ITEM_FLAGS_EXTRA_HORDE_ONLY && _player->GetTeam() == ALLIANCE) ||
+                    (itemTemplate->Flags[1] & ITEM_FLAGS_EXTRA_ALLIANCE_ONLY && _player->GetTeam() == HORDE))
                     continue;
 
                 // Items sold out are not displayed in list
@@ -647,29 +645,15 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
             if (int32 priceMod = _player->GetTotalAuraModifier(SPELL_AURA_MOD_VENDOR_ITEMS_PRICES))
                 price -= CalculatePct(price, priceMod);
 
-            itemsData << uint32(slot + 1);        // client expects counting to start at 1
-            itemsData << uint32(itemTemplate->MaxDurability);
+            item.MuID = slot + 1; // client expects counting to start at 1
+            item.Durability = itemTemplate->MaxDurability;
+            item.ExtendedCostID = vendorItem->ExtendedCost;
+            item.Type = vendorItem->Type;
+            item.Quantity = leftInStock;
+            item.StackCount = itemTemplate->BuyCount;
+            item.Price = price;
 
-            if (vendorItem->ExtendedCost)
-            {
-                enablers.push_back(0);
-                itemsData << uint32(vendorItem->ExtendedCost);
-            }
-            else
-                enablers.push_back(1);
-
-            enablers.push_back(1);                 // item is unlocked
-
-            itemsData << uint32(vendorItem->item);
-            itemsData << uint32(vendorItem->Type);     // 1 is items, 2 is currency
-            itemsData << uint32(price);
-            itemsData << uint32(itemTemplate->DisplayInfoID);
-            // if (!unk "enabler") data << uint32(something);
-            itemsData << int32(leftInStock);
-            itemsData << uint32(itemTemplate->BuyCount);
-
-            if (++count >= MAX_VENDOR_ITEMS)
-                break;
+            item.Item.ItemID = vendorItem->item;
         }
         else if (vendorItem->Type == ITEM_VENDOR_TYPE_CURRENCY)
         {
@@ -680,70 +664,23 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
             if (!vendorItem->ExtendedCost)
                 continue; // there's no price defined for currencies, only extendedcost is used
 
-            itemsData << uint32(slot + 1);             // client expects counting to start at 1
-            itemsData << uint32(0);                  // max durability
-
-            enablers.push_back(0);
-            itemsData << uint32(vendorItem->ExtendedCost);
-
-            enablers.push_back(1);                    // item is unlocked
-
-            itemsData << uint32(vendorItem->item);
-            itemsData << uint32(vendorItem->Type);    // 1 is items, 2 is currency
-            itemsData << uint32(0);                   // price, only seen currency types that have Extended cost
-            itemsData << uint32(0);                   // displayId
-            // if (!unk "enabler") data << uint32(something);
-            itemsData << int32(-1);
-            itemsData << uint32(vendorItem->maxcount);
-
-            if (++count >= MAX_VENDOR_ITEMS)
-                break;
+            item.MuID = slot + 1; // client expects counting to start at 1
+            item.ExtendedCostID = vendorItem->ExtendedCost;
+            item.Item.ItemID = vendorItem->item;
+            item.Type = vendorItem->Type;
+            item.StackCount = vendorItem->maxcount;
         }
-        // else error
+        else
+            continue;
+
+        if (++count >= MAX_VENDOR_ITEMS)
+            break;
     }
 
-    ObjectGuid guid = vendorGuid;
+    // Resize vector to real size (some items can be skipped due to checks)
+    packet.Items.resize(count);
 
-    WorldPacket data(SMSG_LIST_INVENTORY, 12 + itemsData.size());
-
-    data.WriteBit(guid[1]);
-    data.WriteBit(guid[0]);
-
-    data.WriteBits(count, 21); // item count
-
-    data.WriteBit(guid[3]);
-    data.WriteBit(guid[6]);
-    data.WriteBit(guid[5]);
-    data.WriteBit(guid[2]);
-    data.WriteBit(guid[7]);
-
-    for (std::vector<bool>::const_iterator itr = enablers.begin(); itr != enablers.end(); ++itr)
-        data.WriteBit(*itr);
-
-    data.WriteBit(guid[4]);
-
-    data.FlushBits();
-    data.append(itemsData);
-
-    data.WriteByteSeq(guid[5]);
-    data.WriteByteSeq(guid[4]);
-    data.WriteByteSeq(guid[1]);
-    data.WriteByteSeq(guid[0]);
-    data.WriteByteSeq(guid[6]);
-
-    // It doesn't matter what value is used here (PROBABLY its full vendor size)
-    // What matters is that if count of items we can see is 0 and this field is 1
-    // then client will open the vendor list, otherwise it won't
-    if (rawItemCount)
-        data << uint8(rawItemCount);
-    else
-        data << uint8(vendor->IsArmorer());
-
-    data.WriteByteSeq(guid[2]);
-    data.WriteByteSeq(guid[3]);
-    data.WriteByteSeq(guid[7]);
-
-    SendPacket(&data);
+    SendPacket(packet.Write());
 }
 
 void WorldSession::HandleAutoStoreBagItemOpcode(WorldPacket& recvData)
@@ -829,7 +766,7 @@ void WorldSession::HandleBuyBankSlotOpcode(WorldPacket& recvPacket)
         return;
     }
 
-    uint32 price = slotEntry->price;
+    uint32 price = slotEntry->Cost;
 
     if (!_player->HasEnoughMoney(uint64(price)))
     {
@@ -970,7 +907,7 @@ void WorldSession::HandleWrapItemOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (!(gift->GetTemplate()->Flags & ITEM_PROTO_FLAG_WRAPPER)) // cheating: non-wrapper wrapper
+    if (!(gift->GetTemplate()->Flags[0] & ITEM_PROTO_FLAG_WRAPPER)) // cheating: non-wrapper wrapper
     {
         _player->SendEquipError(EQUIP_ERR_ITEM_NOT_FOUND, gift, NULL);
         return;
@@ -1123,19 +1060,19 @@ void WorldSession::HandleSocketOpcode(WorldPacket& recvData)
         }
 
         // tried to put normal gem in meta socket
-        if (itemProto->Socket[i].Color == SOCKET_COLOR_META && GemProps[i]->color != SOCKET_COLOR_META)
+        if (itemProto->Socket[i].Color == SOCKET_COLOR_META && GemProps[i]->Type != SOCKET_COLOR_META)
             return;
 
         // tried to put meta gem in normal socket
-        if (itemProto->Socket[i].Color != SOCKET_COLOR_META && GemProps[i]->color == SOCKET_COLOR_META)
+        if (itemProto->Socket[i].Color != SOCKET_COLOR_META && GemProps[i]->Type == SOCKET_COLOR_META)
             return;
 
         // tried to put normal gem in cogwheel socket
-        if (itemProto->Socket[i].Color == SOCKET_COLOR_COGWHEEL && GemProps[i]->color != SOCKET_COLOR_COGWHEEL)
+        if (itemProto->Socket[i].Color == SOCKET_COLOR_COGWHEEL && GemProps[i]->Type != SOCKET_COLOR_COGWHEEL)
             return;
 
         // tried to put cogwheel gem in normal socket
-        if (itemProto->Socket[i].Color != SOCKET_COLOR_COGWHEEL && GemProps[i]->color == SOCKET_COLOR_COGWHEEL)
+        if (itemProto->Socket[i].Color != SOCKET_COLOR_COGWHEEL && GemProps[i]->Type == SOCKET_COLOR_COGWHEEL)
             return;
     }
 
@@ -1143,7 +1080,7 @@ void WorldSession::HandleSocketOpcode(WorldPacket& recvData)
     uint32 OldEnchants[MAX_GEM_SOCKETS];
     for (int i = 0; i < MAX_GEM_SOCKETS; ++i)                //get new and old enchantments
     {
-        GemEnchants[i] = (GemProps[i]) ? GemProps[i]->spellitemenchantement : 0;
+        GemEnchants[i] = (GemProps[i]) ? GemProps[i]->EnchantID : 0;
         OldEnchants[i] = itemTarget->GetEnchantmentId(EnchantmentSlot(SOCK_ENCHANTMENT_SLOT+i));
     }
 
@@ -1157,7 +1094,7 @@ void WorldSession::HandleSocketOpcode(WorldPacket& recvData)
         ItemTemplate const* iGemProto = Gems[i]->GetTemplate();
 
         // unique item (for new and already placed bit removed enchantments
-        if (iGemProto->Flags & ITEM_PROTO_FLAG_UNIQUE_EQUIPPED)
+        if (iGemProto->Flags[0] & ITEM_PROTO_FLAG_UNIQUE_EQUIPPED)
         {
             for (int j = 0; j < MAX_GEM_SOCKETS; ++j)
             {
@@ -1176,7 +1113,7 @@ void WorldSession::HandleSocketOpcode(WorldPacket& recvData)
                 {
                     if (SpellItemEnchantmentEntry const* enchantEntry = sSpellItemEnchantmentStore.LookupEntry(OldEnchants[j]))
                     {
-                        if (iGemProto->ItemId == enchantEntry->GemID)
+                        if (iGemProto->ItemId == enchantEntry->SRCItemID)
                         {
                             _player->SendEquipError(EQUIP_ERR_ITEM_UNIQUE_EQUIPPABLE_SOCKETED, itemTarget, NULL);
                             return;
@@ -1205,13 +1142,13 @@ void WorldSession::HandleSocketOpcode(WorldPacket& recvData)
                     {
                         // existing gem
                         if (SpellItemEnchantmentEntry const* enchantEntry = sSpellItemEnchantmentStore.LookupEntry(OldEnchants[j]))
-                            if (ItemTemplate const* jProto = sObjectMgr->GetItemTemplate(enchantEntry->GemID))
+                            if (ItemTemplate const* jProto = sObjectMgr->GetItemTemplate(enchantEntry->SRCItemID))
                                 if (iGemProto->ItemLimitCategory == jProto->ItemLimitCategory)
                                     ++limit_newcount;
                     }
                 }
 
-                if (limit_newcount > 0 && uint32(limit_newcount) > limitEntry->maxCount)
+                if (limit_newcount > 0 && uint32(limit_newcount) > limitEntry->Quantity)
                 {
                     _player->SendEquipError(EQUIP_ERR_ITEM_UNIQUE_EQUIPPABLE_SOCKETED, itemTarget, NULL);
                     return;

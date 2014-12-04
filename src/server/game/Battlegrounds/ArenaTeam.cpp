@@ -102,20 +102,13 @@ bool ArenaTeam::AddMember(ObjectGuid playerGuid)
         playerClass = player->getClass();
         playerName = player->GetName();
     }
-    else
+    else if (CharacterInfo const* characterInfo = sWorld->GetCharacterInfo(playerGuid))
     {
-        //          0     1
-        // SELECT name, class FROM characters WHERE guid = ?
-        PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_NAME_CLASS);
-        stmt->setUInt64(0, playerGuid.GetCounter());
-        PreparedQueryResult result = CharacterDatabase.Query(stmt);
-
-        if (!result)
-            return false;
-
-        playerName = (*result)[0].GetString();
-        playerClass = (*result)[1].GetUInt8();
+        playerName = characterInfo->Name;
+        playerClass = characterInfo->Class;
     }
+    else
+        return false;
 
     // Check if player is already in a similar arena team
     if ((player && player->GetArenaTeamId(GetSlot())) || Player::GetArenaTeamIdFromDB(playerGuid, GetType()) != 0)
@@ -193,7 +186,7 @@ bool ArenaTeam::LoadArenaTeamFromDB(QueryResult result)
 
     TeamId            = fields[0].GetUInt32();
     TeamName          = fields[1].GetString();
-    CaptainGuid       = ObjectGuid(HighGuid::Player, fields[2].GetUInt64());
+    CaptainGuid       = ObjectGuid::Create<HighGuid::Player>(fields[2].GetUInt64());
     Type              = fields[3].GetUInt8();
     BackgroundColor   = fields[4].GetUInt32();
     EmblemStyle       = fields[5].GetUInt8();
@@ -232,7 +225,7 @@ bool ArenaTeam::LoadMembersFromDB(QueryResult result)
             break;
 
         ArenaTeamMember newMember;
-        newMember.Guid             = ObjectGuid(HighGuid::Player, fields[1].GetUInt64());
+        newMember.Guid             = ObjectGuid::Create<HighGuid::Player>(fields[1].GetUInt64());
         newMember.WeekGames        = fields[2].GetUInt16();
         newMember.WeekWins         = fields[3].GetUInt16();
         newMember.SeasonGames      = fields[4].GetUInt16();

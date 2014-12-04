@@ -158,7 +158,7 @@ void WorldSession::HandleCalendarGetCalendar(WorldPacket& /*recvData*/)
     {
         HolidaysEntry const* holiday = sHolidaysStore.LookupEntry(666);
 
-        data << uint32(holiday->Id);                        // m_ID
+        data << uint32(holiday->ID);                        // m_ID
         data << uint32(holiday->Region);                    // m_region, might be looping
         data << uint32(holiday->Looping);                   // m_looping, might be region
         data << uint32(holiday->Priority);                  // m_priority
@@ -451,7 +451,7 @@ void WorldSession::HandleCalendarEventInvite(WorldPacket& recvData)
         if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
         {
             Field* fields = result->Fetch();
-            inviteeGuid = ObjectGuid(HighGuid::Player, fields[0].GetUInt64());
+            inviteeGuid = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
             inviteeTeam = Player::TeamForRace(fields[1].GetUInt8());
             inviteeGuildId = Player::GetGuildIdFromDB(inviteeGuid);
         }

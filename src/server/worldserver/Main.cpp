@@ -30,7 +30,6 @@
 #include "OpenSSLCrypto.h"
 #include "ProcessPriority.h"
 #include "BigNumber.h"
-#include "RealmList.h"
 #include "World.h"
 #include "MapManager.h"
 #include "InstanceSaveMgr.h"
@@ -44,6 +43,7 @@
 #include "WorldSocket.h"
 #include "WorldSocketMgr.h"
 #include "BattlenetServerManager.h"
+#include "Realm/Realm.h"
 #include <openssl/opensslv.h>
 #include <openssl/crypto.h>
 #include <boost/asio/io_service.hpp>
@@ -80,8 +80,10 @@ uint32 _maxCoreStuckTimeInMs(0);
 
 WorldDatabaseWorkerPool WorldDatabase;                      ///< Accessor to the world database
 CharacterDatabaseWorkerPool CharacterDatabase;              ///< Accessor to the character database
+HotfixDatabaseWorkerPool HotfixDatabase;                    ///< Accessor to the hotfix database
 LoginDatabaseWorkerPool LoginDatabase;                      ///< Accessor to the realm/login database
 Battlenet::RealmHandle realmHandle;                         ///< Id of the realm
+Realm realm;
 
 void SignalHandler(const boost::system::error_code& error, int signalNumber);
 void FreezeDetectorHandler(const boost::system::error_code& error);
@@ -92,6 +94,7 @@ void WorldUpdateLoop();
 void ClearOnlineAccounts();
 void ShutdownCLIThread(std::thread* cliThread);
 void ShutdownThreadPool(std::vector<std::thread>& threadPool);
+bool LoadRealmInfo();
 variables_map GetConsoleArguments(int argc, char** argv, std::string& cfg_file, std::string& cfg_service);
 
 /// Launch the Trinity server
@@ -192,6 +195,8 @@ extern int main(int argc, char** argv)
     // Set server offline (not connectable)
     LoginDatabase.DirectPExecute("UPDATE realmlist SET flag = (flag & ~%u) | %u WHERE id = '%d'", REALM_FLAG_OFFLINE, REALM_FLAG_INVALID, realmHandle.Index);
 
+    LoadRealmInfo();
+
     // Initialize the World
     sWorld->SetInitialWorldSettings();
 
@@ -226,6 +231,8 @@ extern int main(int argc, char** argv)
 
     // Set server online (allow connecting now)
     LoginDatabase.DirectPExecute("UPDATE realmlist SET flag = flag & ~%u, population = 0 WHERE id = '%u'", REALM_FLAG_INVALID, realmHandle.Index);
+    realm.PopulationLevel = 0.0f;
+    realm.Flags = RealmFlags(realm.Flags & ~uint32(REALM_FLAG_INVALID));
 
     // Start the freeze check callback cycle in 5 seconds (cycle itself is 1 sec)
     if (int coreStuckTime = sConfigMgr->GetIntDefault("MaxCoreStuckTime", 0))
@@ -452,6 +459,62 @@ AsyncAcceptor* StartRaSocketAcceptor(boost::asio::io_service& ioService)
     return acceptor;
 }
 
+bool LoadRealmInfo()
+{
+    boost::asio::ip::tcp::resolver resolver(_ioService);
+    boost::asio::ip::tcp::resolver::iterator end;
+
+    QueryResult result = LoginDatabase.PQuery("SELECT id, name, address, localAddress, localSubnetMask, port, icon, flag, timezone, allowedSecurityLevel, population, gamebuild, Region, Battlegroup FROM realmlist WHERE id = %u", realmHandle.Index);
+    if (!result)
+        return false;
+
+    Field* fields = result->Fetch();
+    realm.Name = fields[1].GetString();
+    boost::asio::ip::tcp::resolver::query externalAddressQuery(ip::tcp::v4(), fields[2].GetString(), "");
+
+    boost::system::error_code ec;
+    boost::asio::ip::tcp::resolver::iterator endPoint = resolver.resolve(externalAddressQuery, ec);
+    if (endPoint == end || ec)
+    {
+        TC_LOG_ERROR("server.worldserver", "Could not resolve address %s", fields[2].GetString().c_str());
+        return false;
+    }
+
+    realm.ExternalAddress = (*endPoint).endpoint().address();
+
+    boost::asio::ip::tcp::resolver::query localAddressQuery(ip::tcp::v4(), fields[3].GetString(), "");
+    endPoint = resolver.resolve(localAddressQuery, ec);
+    if (endPoint == end || ec)
+    {
+        TC_LOG_ERROR("server.worldserver", "Could not resolve address %s", fields[3].GetString().c_str());
+        return false;
+    }
+
+    realm.LocalAddress = (*endPoint).endpoint().address();
+
+    boost::asio::ip::tcp::resolver::query localSubmaskQuery(ip::tcp::v4(), fields[4].GetString(), "");
+    endPoint = resolver.resolve(localSubmaskQuery, ec);
+    if (endPoint == end || ec)
+    {
+        TC_LOG_ERROR("server.worldserver", "Could not resolve address %s", fields[4].GetString().c_str());
+        return false;
+    }
+
+    realm.LocalSubnetMask = (*endPoint).endpoint().address();
+
+    realm.Port = fields[5].GetUInt16();
+    realm.Type = fields[6].GetUInt8();
+    realm.Flags = RealmFlags(fields[7].GetUInt8());
+    realm.Timezone = fields[8].GetUInt8();
+    realm.AllowedSecurityLevel = AccountTypes(fields[9].GetUInt8());
+    realm.PopulationLevel = fields[10].GetFloat();
+    realm.Id.Index = fields[0].GetUInt32();
+    realm.Id.Build = fields[11].GetUInt32();
+    realm.Id.Region = fields[12].GetUInt8();
+    realm.Id.Battlegroup = fields[13].GetUInt8();
+    return true;
+}
+
 /// Initialize connection to the databases
 bool StartDB()
 {
@@ -505,6 +568,31 @@ bool StartDB()
     if (!CharacterDatabase.Open(dbString, asyncThreads, synchThreads))
     {
         TC_LOG_ERROR("server.worldserver", "Cannot connect to Character database %s", dbString.c_str());
+        return false;
+    }
+
+    ///- Get hotfixes database info from configuration file
+    dbString = sConfigMgr->GetStringDefault("HotfixDatabaseInfo", "");
+    if (dbString.empty())
+    {
+        TC_LOG_ERROR("server.worldserver", "Hotfixes database not specified in configuration file");
+        return false;
+    }
+
+    asyncThreads = uint8(sConfigMgr->GetIntDefault("HotfixDatabase.WorkerThreads", 1));
+    if (asyncThreads < 1 || asyncThreads > 32)
+    {
+        TC_LOG_ERROR("server.worldserver", "Hotfixes database: invalid number of worker threads specified. "
+            "Please pick a value between 1 and 32.");
+        return false;
+    }
+
+    synchThreads = uint8(sConfigMgr->GetIntDefault("HotfixDatabase.SynchThreads", 2));
+
+    ///- Initialize the hotfixes database
+    if (!HotfixDatabase.Open(dbString, asyncThreads, synchThreads))
+    {
+        TC_LOG_ERROR("server.worldserver", "Cannot connect to the hotfix database %s", dbString.c_str());
         return false;
     }
 

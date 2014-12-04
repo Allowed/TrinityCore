@@ -573,16 +573,6 @@ const uint32 MaxItemSubclassValues[MAX_ITEM_CLASS] =
     MAX_ITEM_SUBCLASS_GLYPH
 };
 
-inline uint8 ItemSubClassToDurabilityMultiplierId(uint32 ItemClass, uint32 ItemSubClass)
-{
-    switch (ItemClass)
-    {
-        case ITEM_CLASS_WEAPON: return ItemSubClass;
-        case ITEM_CLASS_ARMOR:  return ItemSubClass + 21;
-    }
-    return 0;
-}
-
 // GCC have alternative #pragma pack(N) syntax and old gcc version not support pack(push, N), also any gcc version not support it at some platform
 #if defined(__GNUC__)
 #pragma pack(1)
@@ -598,20 +588,20 @@ struct _ItemStat
     int32   ItemStatUnk2;
 };
 
-struct _Spell
-{
-    int32 SpellId;                                         // id from Spell.dbc
-    uint32 SpellTrigger;
-    int32  SpellCharges;
-    int32  SpellCooldown;
-    uint32 SpellCategory;                                   // id from SpellCategory.dbc
-    int32  SpellCategoryCooldown;
-};
-
 struct _Socket
 {
     uint32 Color;
     uint32 Content;
+};
+
+struct ItemEffect
+{
+    uint32  SpellID;
+    uint32  Trigger;
+    int32   Charges;
+    int32   Cooldown;
+    uint32  Category;
+    int32   CategoryCooldown;
 };
 
 // GCC have alternative #pragma pack() syntax and old gcc version not support pack(pop), also any gcc version not support it at some platform
@@ -621,9 +611,9 @@ struct _Socket
 #pragma pack(pop)
 #endif
 
+#define MAX_ITEM_PROTO_FLAGS 3
 #define MAX_ITEM_PROTO_DAMAGES 2                            // changed in 3.1.0
 #define MAX_ITEM_PROTO_SOCKETS 3
-#define MAX_ITEM_PROTO_SPELLS  5
 #define MAX_ITEM_PROTO_STATS  10
 
 struct ItemTemplate
@@ -634,11 +624,12 @@ struct ItemTemplate
     int32  SoundOverrideSubclass;                           // < 0: id from ItemSubClass.dbc, used to override weapon sound from actual SubClass
     std::string Name1;
     uint32 DisplayInfoID;                                   // id from ItemDisplayInfo.dbc
+    uint32 FileDataID;
+    uint32 GroupSoundsID;
     uint32 Quality;
-    uint32 Flags;
-    uint32 Flags2;
-    float Unk430_1;
-    float Unk430_2;
+    uint32 Flags[MAX_ITEM_PROTO_FLAGS];
+    float Unk1;
+    float Unk2;
     uint32 BuyCount;
     int32  BuyPrice;
     uint32 SellPrice;
@@ -662,7 +653,7 @@ struct ItemTemplate
     uint32 DamageType;                                      // id from Resistances.dbc
     uint32 Delay;
     float  RangedModRange;
-    _Spell Spells[MAX_ITEM_PROTO_SPELLS];
+    std::vector<ItemEffect> Effects;
     uint32 Bonding;
     std::string Description;
     uint32 PageText;
@@ -690,6 +681,7 @@ struct ItemTemplate
     float  StatScalingFactor;
     uint32 CurrencySubstitutionId;                          // May be used instead of a currency
     uint32 CurrencySubstitutionCount;
+    uint32 ItemNameDescriptionID;
 
     // extra fields, not part of db2 files
     float  DamageMin;
@@ -758,7 +750,7 @@ struct ItemTemplate
 
     bool IsPotion() const { return Class == ITEM_CLASS_CONSUMABLE && SubClass == ITEM_SUBCLASS_POTION; }
     bool IsVellum() const { return Class == ITEM_CLASS_TRADE_GOODS && SubClass == ITEM_SUBCLASS_ENCHANTMENT; }
-    bool IsConjuredConsumable() const { return Class == ITEM_CLASS_CONSUMABLE && (Flags & ITEM_PROTO_FLAG_CONJURED); }
+    bool IsConjuredConsumable() const { return Class == ITEM_CLASS_CONSUMABLE && (Flags[0] & ITEM_PROTO_FLAG_CONJURED); }
 
     bool IsRangedWeapon() const
     {

@@ -71,6 +71,7 @@ public:
             { "spell",        rbac::RBAC_PERM_COMMAND_MODIFY_SPELL,        false, &HandleModifySpellCommand,         "", NULL },
             { "standstate",   rbac::RBAC_PERM_COMMAND_MODIFY_STANDSTATE,   false, &HandleModifyStandStateCommand,    "", NULL },
             { "talentpoints", rbac::RBAC_PERM_COMMAND_MODIFY_TALENTPOINTS, false, &HandleModifyTalentCommand,        "", NULL },
+            { "xp",           rbac::RBAC_PERM_COMMAND_MODIFY_XP,           false, &HandleModifyXPCommand,            "", NULL },
             { NULL,           0,                                     false, NULL,                              "", NULL }
         };
         static ChatCommand commandTable[] =
@@ -419,6 +420,7 @@ public:
     //Edit Player TP
     static bool HandleModifyTalentCommand (ChatHandler* handler, const char* args)
     {
+        /* TODO: 6.x remove this
         if (!*args)
             return false;
 
@@ -458,7 +460,7 @@ public:
         }
 
         handler->SendSysMessage(LANG_NO_CHAR_SELECTED);
-        handler->SetSentErrorMessage(true);
+        handler->SetSentErrorMessage(true);*/
         return false;
     }
 
@@ -1002,7 +1004,7 @@ public:
         if (strchr(args, 'g') || strchr(args, 's') || strchr(args, 'c'))
             moneyToAdd = MoneyStringToMoney(std::string(args));
         else
-            moneyToAdd = atol(args);
+            moneyToAdd = atoll(args);
 
         uint64 targetMoney = target->GetMoney();
 
@@ -1233,16 +1235,16 @@ public:
             return false;
         }
 
-        if (factionEntry->reputationListID < 0)
+        if (factionEntry->ReputationIndex < 0)
         {
-            handler->PSendSysMessage(LANG_COMMAND_FACTION_NOREP_ERROR, factionEntry->name, factionId);
+            handler->PSendSysMessage(LANG_COMMAND_FACTION_NOREP_ERROR, factionEntry->Name_lang, factionId);
             handler->SetSentErrorMessage(true);
             return false;
         }
 
         target->GetReputationMgr().SetOneFactionReputation(factionEntry, amount, false);
         target->GetReputationMgr().SendState(target->GetReputationMgr().GetState(factionEntry));
-        handler->PSendSysMessage(LANG_COMMAND_MODIFY_REP, factionEntry->name, factionId,
+        handler->PSendSysMessage(LANG_COMMAND_MODIFY_REP, factionEntry->Name_lang, factionId,
             handler->GetNameLink(target).c_str(), target->GetReputationMgr().GetReputation(factionEntry));
         return true;
     }
@@ -1342,7 +1344,7 @@ public:
         }
 
         // Set gender
-        target->SetByteValue(UNIT_FIELD_BYTES_0, 2, gender);
+        target->SetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_GENDER, gender);
         target->SetByteValue(PLAYER_BYTES_3, 0, gender);
 
         // Change display ID
@@ -1397,6 +1399,37 @@ public:
 
         target->ModifyCurrency(currencyId, amount, true, true);
 
+        return true;
+    }
+
+    // mod xp command
+    static bool HandleModifyXPCommand(ChatHandler *handler, const char* args)
+    {
+        if (!*args)
+            return false;
+
+        int32 xp = atoi((char*)args);
+
+        if (xp < 1)
+        {
+            handler->SendSysMessage(LANG_BAD_VALUE);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        Player* target = handler->getSelectedPlayerOrSelf();
+        if (!target)
+        {
+            handler->SendSysMessage(LANG_NO_CHAR_SELECTED);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+            return false;
+
+        // we can run the command
+        target->GiveXP(xp, nullptr);
         return true;
     }
 };

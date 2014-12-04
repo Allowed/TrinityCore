@@ -70,6 +70,7 @@ enum CreatureFlagsExtra
 #define MAX_KILL_CREDIT 2
 #define MAX_CREATURE_MODELS 4
 #define MAX_CREATURE_QUEST_ITEMS 6
+#define MAX_CREATURE_NAMES 4
 #define CREATURE_MAX_SPELLS 8
 
 // from `creature_template` table
@@ -87,9 +88,9 @@ struct CreatureTemplate
     std::string  SubName;
     std::string  IconName;
     uint32  GossipMenuId;
-    uint8   minlevel;
-    uint8   maxlevel;
-    uint32  expansion;
+    int16   minlevel;
+    int16   maxlevel;
+    int32   expansion;
     uint32  expansionUnknown;                               // either 0 or 3, sent to the client / wdb
     uint32  faction;
     uint32  npcflag;
@@ -286,8 +287,8 @@ struct CreatureModelInfo
 {
     float bounding_radius;
     float combat_reach;
-    uint8 gender;
-    uint32 modelid_other_gender;
+    int8 gender;
+    uint32 displayId_other_gender;
 };
 
 // Benchmarked: Faster than std::map (insert/find)
@@ -348,7 +349,7 @@ struct VendorItem
     uint8  Type;
 
     //helpers
-    bool IsGoldRequired(ItemTemplate const* pProto) const { return pProto->Flags2 & ITEM_FLAGS_EXTRA_EXT_COST_REQUIRES_GOLD || !ExtendedCost; }
+    bool IsGoldRequired(ItemTemplate const* pProto) const { return pProto->Flags[1] & ITEM_FLAGS_EXTRA_EXT_COST_REQUIRES_GOLD || !ExtendedCost; }
 };
 typedef std::vector<VendorItem*> VendorItemList;
 
@@ -391,11 +392,13 @@ struct VendorItemCount
 
 typedef std::list<VendorItemCount> VendorItemCounts;
 
+#define MAX_TRAINERSPELL_ABILITY_REQS 3
+
 struct TrainerSpell
 {
     TrainerSpell() : SpellID(0), MoneyCost(0), ReqSkillLine(0), ReqSkillRank(0), ReqLevel(0)
     {
-        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        for (uint8 i = 0; i < MAX_TRAINERSPELL_ABILITY_REQS; ++i)
             ReqAbility[i] = 0;
     }
 
@@ -404,7 +407,7 @@ struct TrainerSpell
     uint32 ReqSkillLine;
     uint32 ReqSkillRank;
     uint32 ReqLevel;
-    uint32 ReqAbility[3];
+    uint32 ReqAbility[MAX_TRAINERSPELL_ABILITY_REQS];
 
     // helpers
     bool IsCastable() const { return ReqAbility[0] != SpellID; }
@@ -673,7 +676,7 @@ class Creature : public Unit, public GridObject<Creature>, public MapObject
         bool m_isTempWorldObject; //true when possessed
 
         // Handling caster facing during spellcast
-        void SetTarget(ObjectGuid guid) override;
+        void SetTarget(ObjectGuid const& guid) override;
         void FocusTarget(Spell const* focusSpell, WorldObject const* target);
         void ReleaseFocus(Spell const* focusSpell);
 

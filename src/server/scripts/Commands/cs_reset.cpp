@@ -93,15 +93,14 @@ public:
             return false;
         }
 
-        uint8 powerType = classEntry->powerType;
+        uint8 powerType = classEntry->PowerType;
 
         // reset m_form if no aura
         if (!player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT))
             player->SetShapeshiftForm(FORM_NONE);
 
         player->setFactionForRace(player->getRace());
-
-        player->SetUInt32Value(UNIT_FIELD_BYTES_0, ((player->getRace()) | (player->getClass() << 8) | (player->getGender() << 16) | (powerType << 24)));
+        player->SetUInt32Value(UNIT_FIELD_DISPLAY_POWER, powerType);
 
         // reset only if player not in some form;
         if (player->GetShapeshiftForm() == FORM_NONE)
@@ -204,8 +203,10 @@ public:
         Player* target;
         ObjectGuid targetGuid;
         std::string targetName;
+
         if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
         {
+            /* TODO: 6.x remove/update pet talents
             // Try reset talents as Hunter Pet
             Creature* creature = handler->getSelectedCreature();
             if (!*args && creature && creature->IsPet())
@@ -222,6 +223,7 @@ public:
                 }
                 return true;
             }
+            */
 
             handler->SendSysMessage(LANG_NO_CHAR_SELECTED);
             handler->SetSentErrorMessage(true);
@@ -231,15 +233,17 @@ public:
         if (target)
         {
             target->ResetTalents(true);
-            target->SendTalentsInfoData(false);
+            target->SendTalentsInfoData();
             ChatHandler(target->GetSession()).SendSysMessage(LANG_RESET_TALENTS);
             if (!handler->GetSession() || handler->GetSession()->GetPlayer() != target)
                 handler->PSendSysMessage(LANG_RESET_TALENTS_ONLINE, handler->GetNameLink(target).c_str());
 
+            /* TODO: 6.x remove/update pet talents
             Pet* pet = target->GetPet();
             Pet::resetTalentsForAllPetsOf(target, pet);
             if (pet)
                 target->SendTalentsInfoData(true);
+            */
             return true;
         }
         else if (!targetGuid.IsEmpty())

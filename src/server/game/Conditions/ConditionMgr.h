@@ -23,6 +23,7 @@
 #include "Errors.h"
 #include <list>
 #include <map>
+#include <string>
 
 class Player;
 class Unit;
@@ -33,7 +34,7 @@ struct Condition;
 enum ConditionTypes
 {                                                           // value1           value2         value3
     CONDITION_NONE                  = 0,                    // 0                0              0                  always true
-    CONDITION_AURA                  = 1,                    // spell_id         effindex       use target?        true if player (or target, if value3) has aura of spell_id with effect effindex
+    CONDITION_AURA                  = 1,                    // spell_id         effindex       0                  true if target has aura of spell_id with effect effindex
     CONDITION_ITEM                  = 2,                    // item_id          count          bank               true if has #count of item_ids (if 'bank' is set it searches in bank slots too)
     CONDITION_ITEM_EQUIPPED         = 3,                    // item_id          0              0                  true if has item_id equipped
     CONDITION_ZONEID                = 4,                    // zone_id          0              0                  true if in zone_id
@@ -210,6 +211,8 @@ struct Condition
     uint32 GetSearcherTypeMaskForCondition();
     bool isLoaded() const { return ConditionType > CONDITION_NONE || ReferenceId; }
     uint32 GetMaxAvailableConditionTargets();
+
+    std::string ToString(bool ext = false) const; /// For logging purpose
 };
 
 typedef std::list<Condition*> ConditionList;
@@ -229,7 +232,6 @@ class ConditionMgr
         ~ConditionMgr();
 
     public:
-
         static ConditionMgr* instance()
         {
             static ConditionMgr instance;
@@ -244,14 +246,24 @@ class ConditionMgr
         bool IsObjectMeetToConditions(WorldObject* object, ConditionList const& conditions);
         bool IsObjectMeetToConditions(WorldObject* object1, WorldObject* object2, ConditionList const& conditions);
         bool IsObjectMeetToConditions(ConditionSourceInfo& sourceInfo, ConditionList const& conditions);
-        bool CanHaveSourceGroupSet(ConditionSourceType sourceType) const;
-        bool CanHaveSourceIdSet(ConditionSourceType sourceType) const;
+        static bool CanHaveSourceGroupSet(ConditionSourceType sourceType);
+        static bool CanHaveSourceIdSet(ConditionSourceType sourceType);
         ConditionList GetConditionsForNotGroupedEntry(ConditionSourceType sourceType, uint32 entry);
         ConditionList GetConditionsForSpellClickEvent(uint32 creatureId, uint32 spellId);
         ConditionList GetConditionsForSmartEvent(int64 entryOrGuid, uint32 eventId, uint32 sourceType);
         ConditionList GetConditionsForVehicleSpell(uint32 creatureId, uint32 spellId);
         ConditionList const* GetConditionsForPhaseDefinition(uint32 zone, uint32 entry);
         ConditionList GetConditionsForNpcVendorEvent(uint32 creatureId, uint32 itemId);
+
+        struct ConditionTypeInfo
+        {
+            char const* Name;
+            bool HasConditionValue1;
+            bool HasConditionValue2;
+            bool HasConditionValue3;
+        };
+        static char const* StaticSourceTypeData[CONDITION_SOURCE_TYPE_MAX];
+        static ConditionTypeInfo const StaticConditionTypeData[CONDITION_MAX];
 
     private:
         bool isSourceTypeValid(Condition* cond);
@@ -260,6 +272,8 @@ class ConditionMgr
         bool addToGossipMenuItems(Condition* cond);
         bool addToSpellImplicitTargetConditions(Condition* cond);
         bool IsObjectMeetToConditionList(ConditionSourceInfo& sourceInfo, ConditionList const& conditions);
+
+        static void LogUselessConditionValue(Condition* cond, uint8 index, uint32 value);
 
         void Clean(); // free up resources
         std::list<Condition*> AllocatedMemoryStore; // some garbage collection :)

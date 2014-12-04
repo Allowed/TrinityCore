@@ -37,6 +37,7 @@
 #include "SpellAuras.h"
 #include "Util.h"
 #include "WorldPacket.h"
+#include "WorldStatePackets.h"
 #include "Transport.h"
 
 namespace Trinity
@@ -69,7 +70,9 @@ namespace Trinity
         private:
             void do_helper(WorldPacket& data, char const* text)
             {
-                ChatHandler::BuildChatPacket(data, _msgtype, LANG_UNIVERSAL, _source, _source, text);
+                WorldPackets::Chat::Chat packet;
+                ChatHandler::BuildChatPacket(&packet, _msgtype, LANG_UNIVERSAL, _source, _source, text);
+                data = *packet.Write();
             }
 
             ChatMsg _msgtype;
@@ -93,7 +96,9 @@ namespace Trinity
                 char str[2048];
                 snprintf(str, 2048, text, arg1str, arg2str);
 
-                ChatHandler::BuildChatPacket(data, _msgtype, LANG_UNIVERSAL, _source, _source, str);
+                WorldPackets::Chat::Chat packet;
+                ChatHandler::BuildChatPacket(&packet, _msgtype, LANG_UNIVERSAL, _source, _source, str);
+                data = *packet.Write();
             }
 
         private:
@@ -634,14 +639,14 @@ Position const* Battleground::GetTeamStartPosition(TeamId teamId) const
     return &StartPosition[teamId];
 }
 
-void Battleground::SendPacketToAll(WorldPacket* packet)
+void Battleground::SendPacketToAll(WorldPacket const* packet) const
 {
     for (BattlegroundPlayerMap::const_iterator itr = m_Players.begin(); itr != m_Players.end(); ++itr)
         if (Player* player = _GetPlayer(itr, "SendPacketToAll"))
             player->SendDirectMessage(packet);
 }
 
-void Battleground::SendPacketToTeam(uint32 TeamID, WorldPacket* packet, Player* sender, bool self)
+void Battleground::SendPacketToTeam(uint32 TeamID, WorldPacket const* packet, Player* sender, bool self) const
 {
     for (BattlegroundPlayerMap::const_iterator itr = m_Players.begin(); itr != m_Players.end(); ++itr)
     {
@@ -716,18 +721,13 @@ void Battleground::RewardReputationToTeam(uint32 faction_id, uint32 Reputation, 
     }
 }
 
-void Battleground::UpdateWorldState(uint32 Field, uint32 Value)
+void Battleground::UpdateWorldState(uint32 variable, uint32 value, bool hidden /*= false*/)
 {
-    WorldPacket data;
-    sBattlegroundMgr->BuildUpdateWorldStatePacket(&data, Field, Value);
-    SendPacketToAll(&data);
-}
-
-void Battleground::UpdateWorldStateForPlayer(uint32 field, uint32 value, Player* player)
-{
-    WorldPacket data;
-    sBattlegroundMgr->BuildUpdateWorldStatePacket(&data, field, value);
-    player->SendDirectMessage(&data);
+    WorldPackets::WorldState::UpdateWorldState worldstate;
+    worldstate.VariableID = variable;
+    worldstate.Value = value;
+    worldstate.Hidden = hidden;
+    SendPacketToAll(worldstate.Write());
 }
 
 void Battleground::EndBattleground(uint32 winner)
@@ -1070,12 +1070,11 @@ void Battleground::AddPlayer(Player* player)
     // score struct must be created in inherited class
 
     uint32 team = player->GetBGTeam();
-    int32  primaryTree = player->GetPrimaryTalentTree(player->GetActiveSpec());
 
     BattlegroundPlayer bp;
     bp.OfflineRemoveTime = 0;
     bp.Team = team;
-    bp.PrimaryTree = primaryTree;
+    bp.ActiveSpec = player->GetActiveTalentSpec();
 
     // Add to list/maps
     m_Players[player->GetGUID()] = bp;
@@ -1402,7 +1401,7 @@ void Battleground::RelocateDeadPlayers(ObjectGuid guideGuid)
                 closestGrave = GetClosestGraveYard(player);
 
             if (closestGrave)
-                player->TeleportTo(GetMapId(), closestGrave->x, closestGrave->y, closestGrave->z, player->GetOrientation());
+                player->TeleportTo(GetMapId(), closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation());
         }
         ghostList.clear();
     }
@@ -1698,11 +1697,12 @@ void Battleground::SendWarningToAll(uint32 entry, ...)
     if (!entry)
         return;
 
-    std::map<uint32, WorldPacket> localizedPackets;
+    std::map<uint32, WorldPackets::Chat::Chat> localizedPackets;
     for (BattlegroundPlayerMap::const_iterator itr = m_Players.begin(); itr != m_Players.end(); ++itr)
         if (Player* player = _GetPlayer(itr, "SendWarningToAll"))
         {
-            if (localizedPackets.find(player->GetSession()->GetSessionDbLocaleIndex()) == localizedPackets.end())
+            auto packetItr = localizedPackets.find(player->GetSession()->GetSessionDbLocaleIndex());
+            if (packetItr == localizedPackets.end())
             {
                 char const* format = sObjectMgr->GetTrinityString(entry, player->GetSession()->GetSessionDbLocaleIndex());
 
@@ -1712,10 +1712,10 @@ void Battleground::SendWarningToAll(uint32 entry, ...)
                 vsnprintf(str, 1024, format, ap);
                 va_end(ap);
 
-                ChatHandler::BuildChatPacket(localizedPackets[player->GetSession()->GetSessionDbLocaleIndex()], CHAT_MSG_RAID_BOSS_EMOTE, LANG_UNIVERSAL, NULL, NULL, str);
+                ChatHandler::BuildChatPacket(&packetItr->second, CHAT_MSG_RAID_BOSS_EMOTE, LANG_UNIVERSAL, NULL, NULL, str);
             }
 
-            player->SendDirectMessage(&localizedPackets[player->GetSession()->GetSessionDbLocaleIndex()]);
+            player->SendDirectMessage(packetItr->second.Write());
         }
 }
 
@@ -1902,7 +1902,7 @@ void Battleground::StartTimedAchievement(AchievementCriteriaTimedTypes type, uin
 void Battleground::SetBracket(PvPDifficultyEntry const* bracketEntry)
 {
     m_BracketId = bracketEntry->GetBracketId();
-    SetLevelRange(bracketEntry->minLevel, bracketEntry->maxLevel);
+    SetLevelRange(bracketEntry->MinLevel, bracketEntry->MaxLevel);
 }
 
 void Battleground::RewardXPAtKill(Player* killer, Player* victim)

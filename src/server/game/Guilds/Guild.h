@@ -285,7 +285,6 @@ public:
     void LoadFromDB(Field* fields);
     void SaveToDB(ObjectGuid::LowType guildId) const;
     void ReadPacket(WorldPacket& recv);
-    void WritePacket(WorldPacket& data) const;
 
     uint32 GetStyle() const { return m_style; }
     uint32 GetColor() const { return m_color; }
@@ -777,7 +776,7 @@ public:
 
     // Getters
     ObjectGuid::LowType GetId() const { return m_id; }
-    ObjectGuid GetGUID() const { return ObjectGuid(HighGuid::Guild, m_id); }
+    ObjectGuid GetGUID() const { return ObjectGuid::Create<HighGuid::Guild>(m_id); }
     ObjectGuid GetLeaderGUID() const { return m_leaderGuid; }
     std::string const& GetName() const { return m_name; }
     std::string const& GetMOTD() const { return m_motd; }
@@ -790,7 +789,7 @@ public:
 
     // Handle client commands
     void HandleRoster(WorldSession* session);
-    void HandleQuery(WorldSession* session);
+    void SendQueryResponse(WorldSession* session);
     void HandleSetAchievementTracking(WorldSession* session, std::set<uint32> const& achievementIds);
     void HandleSetMOTD(WorldSession* session, std::string const& motd);
     void HandleSetInfo(WorldSession* session, std::string const& info);

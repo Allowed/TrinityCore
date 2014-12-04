@@ -21,6 +21,8 @@
 #include <G3D/Quat.h>
 #include "Spline.h"
 #include "DBCStores.h"
+#include "ObjectGuid.h"
+#include "DB2Structure.h"
 
 struct KeyFrame;
 struct GameObjectTemplate;
@@ -61,7 +63,7 @@ struct KeyFrame
     uint32 NextArriveTime;
 
     bool IsTeleportFrame() const { return Teleport; }
-    bool IsStopFrame() const { return Node->actionFlag == 2; }
+    bool IsStopFrame() const { return Node->Flags == 2; }
 };
 
 struct TransportTemplate

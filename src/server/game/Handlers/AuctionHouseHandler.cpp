@@ -30,6 +30,8 @@
 #include "Util.h"
 #include "AccountMgr.h"
 
+#include "AuctionHousePackets.h"
+
 //void called when player click on auctioneer npc
 void WorldSession::HandleAuctionHelloOpcode(WorldPacket& recvData)
 {
@@ -63,38 +65,20 @@ void WorldSession::SendAuctionHello(ObjectGuid guid, Creature* unit)
     if (!ahEntry)
         return;
 
-    WorldPacket data(MSG_AUCTION_HELLO, 12);
+    WorldPacket data(SMSG_AUCTION_HELLO, 12);
     data << guid;
-    data << uint32(ahEntry->houseId);
+    data << uint32(ahEntry->ID);
     data << uint8(1);                                       // 3.3.3: 1 - AH enabled, 0 - AH disabled
     SendPacket(&data);
 }
 
-//call this method when player bids, creates, or deletes auction
-void WorldSession::SendAuctionCommandResult(AuctionEntry* auction, uint32 action, uint32 errorCode, uint32 bidError)
+void WorldSession::SendAuctionCommandResult(AuctionEntry* auction, uint32 action, uint32 errorCode, uint32 /*bidError = 0*/)
 {
-    WorldPacket data(SMSG_AUCTION_COMMAND_RESULT);
-    data << uint32(auction ? auction->Id : 0);
-    data << uint32(action);
-    data << uint32(errorCode);
-
-    switch (errorCode)
-    {
-        case ERR_AUCTION_OK:
-            if (action == AUCTION_PLACE_BID)
-                data << uint64(auction->bid ? auction->GetAuctionOutBid() : 0);
-            break;
-        case ERR_AUCTION_INVENTORY:
-            data << uint32(bidError);
-            break;
-        case ERR_AUCTION_HIGHER_BID:
-            data << uint64(auction->bidder);
-            data << uint64(auction->bid);
-            data << uint64(auction->bid ? auction->GetAuctionOutBid() : 0);
-            break;
-    }
-
-    SendPacket(&data);
+    WorldPackets::AuctionHouse::AuctionCommandResult auctionCommandResult;
+    auctionCommandResult.InitializeAuction(auction);
+    auctionCommandResult.Action = action;
+    auctionCommandResult.ErrorCode = errorCode;
+    SendPacket(auctionCommandResult.Write());
 }
 
 //this function sends notification, if bidder is online
@@ -229,7 +213,7 @@ void WorldSession::HandleAuctionSellItem(WorldPacket& recvData)
             itemEntry = item->GetTemplate()->ItemId;
 
         if (sAuctionMgr->GetAItem(item->GetGUID().GetCounter()) || !item->CanBeTraded() || item->IsNotEmptyBag() ||
-            item->GetTemplate()->Flags & ITEM_PROTO_FLAG_CONJURED || item->GetUInt32Value(ITEM_FIELD_DURATION) ||
+            item->GetTemplate()->Flags[0] & ITEM_PROTO_FLAG_CONJURED || item->GetUInt32Value(ITEM_FIELD_DURATION) ||
             item->GetCount() < count[i] || itemEntry != item->GetTemplate()->ItemId)
         {
             SendAuctionCommandResult(NULL, AUCTION_SELL_ITEM, ERR_AUCTION_DATABASE_ERROR);
@@ -445,9 +429,9 @@ void WorldSession::HandleAuctionPlaceBid(WorldPacket& recvData)
     }
 
     // impossible have online own another character (use this for speedup check in case online owner)
-    ObjectGuid ownerGuid(HighGuid::Player, auction->owner);
+    ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(auction->owner);
     Player* auction_owner = ObjectAccessor::FindPlayer(ownerGuid);
-    if (!auction_owner && sObjectMgr->GetPlayerAccountIdByGUID(ownerGuid) == player->GetSession()->GetAccountId())
+    if (!auction_owner && ObjectMgr::GetPlayerAccountIdByGUID(ownerGuid) == player->GetSession()->GetAccountId())
     {
         //you cannot bid your another character auction:
         SendAuctionCommandResult(NULL, AUCTION_PLACE_BID, ERR_AUCTION_BID_OWN);
@@ -744,7 +728,7 @@ void WorldSession::HandleAuctionListItems(WorldPacket& recvData)
     TC_LOG_DEBUG("auctionHouse", "Auctionhouse search (%s) list from: %u, searchedname: %s, levelmin: %u, levelmax: %u, auctionSlotID: %u, auctionMainCategory: %u, auctionSubCategory: %u, quality: %u, usable: %u",
         guid.ToString().c_str(), listfrom, searchedname.c_str(), levelmin, levelmax, auctionSlotID, auctionMainCategory, auctionSubCategory, quality, usable);
 
-    WorldPacket data(SMSG_AUCTION_LIST_RESULT, (4+4+4));
+    WorldPacket data(SMSG_AUCTION_LIST_ITEMS_RESULT, (4+4+4));
     uint32 count = 0;
     uint32 totalcount = 0;
     data << uint32(0);

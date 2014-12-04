@@ -29,6 +29,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "WorldPacket.h"
+#include "WorldStatePackets.h"
 
 Battlefield::Battlefield()
 {
@@ -351,7 +352,7 @@ void Battlefield::DoPlaySoundToAll(uint32 SoundID)
     data << uint32(SoundID);
     data << uint64(0);
 
-    BroadcastPacketToWar(data);
+    BroadcastPacketToWar(&data);
 }
 
 bool Battlefield::HasPlayer(Player* player) const
@@ -410,28 +411,28 @@ void Battlefield::TeamCastSpell(TeamId team, int32 spellId)
     }
 }
 
-void Battlefield::BroadcastPacketToZone(WorldPacket& data) const
+void Battlefield::BroadcastPacketToZone(WorldPacket const* data) const
 {
     for (uint8 team = 0; team < BG_TEAMS_COUNT; ++team)
         for (GuidSet::const_iterator itr = m_players[team].begin(); itr != m_players[team].end(); ++itr)
             if (Player* player = ObjectAccessor::FindPlayer(*itr))
-                player->SendDirectMessage(&data);
+                player->SendDirectMessage(data);
 }
 
-void Battlefield::BroadcastPacketToQueue(WorldPacket& data) const
+void Battlefield::BroadcastPacketToQueue(WorldPacket const* data) const
 {
     for (uint8 team = 0; team < BG_TEAMS_COUNT; ++team)
         for (GuidSet::const_iterator itr = m_PlayersInQueue[team].begin(); itr != m_PlayersInQueue[team].end(); ++itr)
             if (Player* player = ObjectAccessor::FindConnectedPlayer(*itr))
-                player->SendDirectMessage(&data);
+                player->SendDirectMessage(data);
 }
 
-void Battlefield::BroadcastPacketToWar(WorldPacket& data) const
+void Battlefield::BroadcastPacketToWar(WorldPacket const* data) const
 {
     for (uint8 team = 0; team < BG_TEAMS_COUNT; ++team)
         for (GuidSet::const_iterator itr = m_PlayersInWar[team].begin(); itr != m_PlayersInWar[team].end(); ++itr)
             if (Player* player = ObjectAccessor::FindPlayer(*itr))
-                player->SendDirectMessage(&data);
+                player->SendDirectMessage(data);
 }
 
 void Battlefield::SendWarning(uint8 id, WorldObject const* target /*= nullptr*/)
@@ -440,12 +441,13 @@ void Battlefield::SendWarning(uint8 id, WorldObject const* target /*= nullptr*/)
         sCreatureTextMgr->SendChat(stalker, id, target);
 }
 
-void Battlefield::SendUpdateWorldState(uint32 field, uint32 value)
+void Battlefield::SendUpdateWorldState(uint32 variable, uint32 value, bool hidden /*= false*/)
 {
-    for (uint8 i = 0; i < BG_TEAMS_COUNT; ++i)
-        for (GuidSet::iterator itr = m_players[i].begin(); itr != m_players[i].end(); ++itr)
-            if (Player* player = ObjectAccessor::FindPlayer(*itr))
-                player->SendUpdateWorldState(field, value);
+    WorldPackets::WorldState::UpdateWorldState worldstate;
+    worldstate.VariableID = variable;
+    worldstate.Value = value;
+    worldstate.Hidden = hidden;
+    BroadcastPacketToZone(worldstate.Write());
 }
 
 void Battlefield::RegisterZone(uint32 zoneId)
@@ -650,7 +652,7 @@ void BfGraveyard::SetSpirit(Creature* spirit, TeamId team)
 float BfGraveyard::GetDistance(Player* player)
 {
     const WorldSafeLocsEntry* safeLoc = sWorldSafeLocsStore.LookupEntry(m_GraveyardId);
-    return player->GetDistance2d(safeLoc->x, safeLoc->y);
+    return player->GetDistance2d(safeLoc->Loc.X, safeLoc->Loc.Y);
 }
 
 void BfGraveyard::AddPlayer(ObjectGuid playerGuid)
@@ -726,12 +728,12 @@ void BfGraveyard::RelocateDeadPlayers()
             continue;
 
         if (closestGrave)
-            player->TeleportTo(player->GetMapId(), closestGrave->x, closestGrave->y, closestGrave->z, player->GetOrientation());
+            player->TeleportTo(player->GetMapId(), closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation());
         else
         {
             closestGrave = m_Bf->GetClosestGraveYard(player);
             if (closestGrave)
-                player->TeleportTo(player->GetMapId(), closestGrave->x, closestGrave->y, closestGrave->z, player->GetOrientation());
+                player->TeleportTo(player->GetMapId(), closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation());
         }
     }
 }
@@ -854,9 +856,9 @@ bool BfCapturePoint::HandlePlayerEnter(Player* player)
     {
         if (GameObject* capturePoint = m_Bf->GetGameObject(m_capturePointGUID))
         {
-            player->SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldState1, 1);
-            player->SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldstate2, uint32(ceil((m_value + m_maxValue) / (2 * m_maxValue) * 100.0f)));
-            player->SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldstate3, m_neutralValuePct);
+            player->SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldState1, 1);
+            player->SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldstate2, uint32(ceil((m_value + m_maxValue) / (2 * m_maxValue) * 100.0f)));
+            player->SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldstate3, m_neutralValuePct);
         }
     }
 
@@ -867,7 +869,7 @@ GuidSet::iterator BfCapturePoint::HandlePlayerLeave(Player* player)
 {
     if (!m_capturePointGUID.IsEmpty())
         if (GameObject* capturePoint = m_Bf->GetGameObject(m_capturePointGUID))
-            player->SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldState1, 0);
+            player->SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldState1, 0);
 
     GuidSet::iterator current = m_activePlayers[player->GetTeamId()].find(player->GetGUID());
 
@@ -886,11 +888,11 @@ void BfCapturePoint::SendChangePhase()
     if (GameObject* capturePoint = m_Bf->GetGameObject(m_capturePointGUID))
     {
         // send this too, sometimes the slider disappears, dunno why :(
-        SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldState1, 1);
+        SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldState1, 1);
         // send these updates to only the ones in this objective
-        SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldstate2, (uint32) std::ceil((m_value + m_maxValue) / (2 * m_maxValue) * 100.0f));
+        SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldstate2, (uint32)std::ceil((m_value + m_maxValue) / (2 * m_maxValue) * 100.0f));
         // send this too, sometimes it resets :S
-        SendUpdateWorldState(capturePoint->GetGOInfo()->capturePoint.worldstate3, m_neutralValuePct);
+        SendUpdateWorldState(capturePoint->GetGOInfo()->controlZone.worldstate3, m_neutralValuePct);
     }
 }
 
@@ -911,10 +913,10 @@ bool BfCapturePoint::SetCapturePointData(GameObject* capturePoint)
     }
 
     // get the needed values from goinfo
-    m_maxValue = goinfo->capturePoint.maxTime;
-    m_maxSpeed = m_maxValue / (goinfo->capturePoint.minTime ? goinfo->capturePoint.minTime : 60);
-    m_neutralValuePct = goinfo->capturePoint.neutralPercent;
-    m_minValue = m_maxValue * goinfo->capturePoint.neutralPercent / 100;
+    m_maxValue = goinfo->controlZone.maxTime;
+    m_maxSpeed = m_maxValue / (goinfo->controlZone.minTime ? goinfo->controlZone.minTime : 60);
+    m_neutralValuePct = goinfo->controlZone.neutralPercent;
+    m_minValue = m_maxValue * goinfo->controlZone.neutralPercent / 100;
     m_capturePointEntry = capturePoint->GetEntry();
     if (m_team == TEAM_ALLIANCE)
     {
@@ -958,7 +960,7 @@ bool BfCapturePoint::Update(uint32 diff)
 
     if (GameObject* capturePoint = m_Bf->GetGameObject(m_capturePointGUID))
     {
-        float radius = capturePoint->GetGOInfo()->capturePoint.radius;
+        float radius = capturePoint->GetGOInfo()->controlZone.radius;
 
         for (uint8 team = 0; team < 2; ++team)
         {

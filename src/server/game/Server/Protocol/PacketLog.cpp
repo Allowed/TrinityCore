@@ -86,7 +86,7 @@ void PacketLog::Initialize()
         header.Signature[0] = 'P'; header.Signature[1] = 'K'; header.Signature[2] = 'T';
         header.FormatVersion = 0x0301;
         header.SnifferId = 'T';
-        header.Build = 15595;
+        header.Build = 19103;
         header.Locale[0] = 'e'; header.Locale[1] = 'n'; header.Locale[2] = 'U'; header.Locale[3] = 'S';
         std::memset(header.SessionKey, 0, sizeof(header.SessionKey));
         header.SniffStartUnixtime = time(NULL);
@@ -98,13 +98,13 @@ void PacketLog::Initialize()
     }
 }
 
-void PacketLog::LogPacket(WorldPacket const& packet, Direction direction, boost::asio::ip::address const& addr, uint16 port)
+void PacketLog::LogPacket(WorldPacket const& packet, Direction direction, boost::asio::ip::address const& addr, uint16 port, ConnectionType connectionType)
 {
     std::lock_guard<std::mutex> lock(_logPacketLock);
 
     PacketHeader header;
     *reinterpret_cast<uint32*>(header.Direction) = direction == CLIENT_TO_SERVER ? 0x47534d43 : 0x47534d53;
-    header.ConnectionId = 0;
+    header.ConnectionId = connectionType;
     header.ArrivalTicks = getMSTime();
 
     header.OptionalDataSize = sizeof(header.OptionalData);

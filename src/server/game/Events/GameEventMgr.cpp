@@ -19,7 +19,6 @@
 #include "GameEventMgr.h"
 #include "World.h"
 #include "ObjectMgr.h"
-#include "WorldPacket.h"
 #include "PoolMgr.h"
 #include "Language.h"
 #include "Log.h"
@@ -29,6 +28,7 @@
 #include "BattlegroundMgr.h"
 #include "UnitAI.h"
 #include "GameObjectAI.h"
+#include "WorldStatePackets.h"
 
 bool GameEventMgr::CheckOneGameEvent(uint16 entry) const
 {
@@ -1123,7 +1123,7 @@ void GameEventMgr::UpdateEventNPCFlags(uint16 event_id)
         // get the creature data from the low guid to get the entry, to be able to find out the whole guid
         if (CreatureData const* data = sObjectMgr->GetCreatureData(itr->first))
         {
-            Creature* cr = HashMapHolder<Creature>::Find(ObjectGuid(HighGuid::Creature, data->id, itr->first));
+            Creature* cr = HashMapHolder<Creature>::Find(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, itr->first));
             // if we found the creature, modify its npcflag
             if (cr)
             {
@@ -1254,7 +1254,7 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
         {
             sObjectMgr->RemoveCreatureFromGrid(*itr, data);
 
-            if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid(HighGuid::Creature, data->id, *itr), (Creature*)NULL))
+            if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, *itr), (Creature*)NULL))
                 creature->AddObjectToRemoveList();
         }
     }
@@ -1276,7 +1276,7 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
         {
             sObjectMgr->RemoveGameobjectFromGrid(*itr, data);
 
-            if (GameObject* pGameobject = ObjectAccessor::GetObjectInWorld(ObjectGuid(HighGuid::GameObject, data->id, *itr), (GameObject*)NULL))
+            if (GameObject* pGameobject = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::GameObject>(data->mapid, data->id, *itr), (GameObject*)NULL))
                 pGameobject->AddObjectToRemoveList();
         }
     }
@@ -1302,7 +1302,7 @@ void GameEventMgr::ChangeEquipOrModel(int16 event_id, bool activate)
             continue;
 
         // Update if spawned
-        Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid(HighGuid::Creature, data->id, itr->first), (Creature*)NULL);
+        Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, itr->first), (Creature*)NULL);
         if (creature)
         {
             if (activate)
@@ -1484,11 +1484,13 @@ void GameEventMgr::UpdateWorldStates(uint16 event_id, bool Activate)
         if (bgTypeId != BATTLEGROUND_TYPE_NONE)
         {
             BattlemasterListEntry const* bl = sBattlemasterListStore.LookupEntry(bgTypeId);
-            if (bl && bl->HolidayWorldStateId)
+            if (bl && bl->HolidayWorldState)
             {
-                WorldPacket data;
-                sBattlegroundMgr->BuildUpdateWorldStatePacket(&data, bl->HolidayWorldStateId, Activate ? 1 : 0);
-                sWorld->SendGlobalMessage(&data);
+                WorldPackets::WorldState::UpdateWorldState worldstate;
+                worldstate.VariableID = bl->HolidayWorldState;
+                worldstate.Value = Activate;
+                //worldstate.Hidden = false;
+                sWorld->SendGlobalMessage(worldstate.Write());
             }
         }
     }

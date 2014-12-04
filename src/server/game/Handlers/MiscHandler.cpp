@@ -56,6 +56,9 @@
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "DB2Stores.h"
+#include "CharacterPackets.h"
+#include "ClientConfigPackets.h"
+#include "MiscPackets.h"
 
 void WorldSession::HandleRepopRequestOpcode(WorldPacket& recvData)
 {
@@ -330,7 +333,7 @@ void WorldSession::HandleWhoOpcode(WorldPacket& recvData)
 
         std::string aname;
         if (AreaTableEntry const* areaEntry = GetAreaEntryByAreaID(pzoneid))
-            aname = areaEntry->area_name[GetSessionDbcLocale()];
+            aname = areaEntry->ZoneName;
 
         bool s_show = true;
         for (uint32 i = 0; i < str_count; ++i)
@@ -373,7 +376,7 @@ void WorldSession::HandleWhoOpcode(WorldPacket& recvData)
     TC_LOG_DEBUG("network", "WORLD: Send SMSG_WHO Message");
 }
 
-void WorldSession::HandleLogoutRequestOpcode(WorldPacket& /*recvData*/)
+void WorldSession::HandleLogoutRequestOpcode(WorldPackets::Character::LogoutRequest& /*logoutRequest*/)
 {
     TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_LOGOUT_REQUEST Message, security - %u", GetSecurity());
 
@@ -395,14 +398,14 @@ void WorldSession::HandleLogoutRequestOpcode(WorldPacket& /*recvData*/)
     else if (GetPlayer()->duel || GetPlayer()->HasAura(9454)) // is dueling or frozen by GM via freeze command
         reason = 2;                                         // FIXME - Need the correct value
 
-    WorldPacket data(SMSG_LOGOUT_RESPONSE, 1+4);
-    data << uint32(reason);
-    data << uint8(instantLogout);
-    SendPacket(&data);
+    WorldPackets::Character::LogoutResponse logoutResponse;
+    logoutResponse.LogoutResult = reason;
+    logoutResponse.Instant = instantLogout;
+    SendPacket(logoutResponse.Write());
 
     if (reason)
     {
-        LogoutRequest(0);
+        SetLogoutStartTime(0);
         return;
     }
 
@@ -422,15 +425,10 @@ void WorldSession::HandleLogoutRequestOpcode(WorldPacket& /*recvData*/)
         GetPlayer()->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
     }
 
-    LogoutRequest(time(NULL));
+    SetLogoutStartTime(time(NULL));
 }
 
-void WorldSession::HandlePlayerLogoutOpcode(WorldPacket& /*recvData*/)
-{
-    TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_PLAYER_LOGOUT Message");
-}
-
-void WorldSession::HandleLogoutCancelOpcode(WorldPacket& /*recvData*/)
+void WorldSession::HandleLogoutCancelOpcode(WorldPackets::Character::LogoutCancel& /*logoutCancel*/)
 {
     TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_LOGOUT_CANCEL Message");
 
@@ -438,10 +436,9 @@ void WorldSession::HandleLogoutCancelOpcode(WorldPacket& /*recvData*/)
     if (!GetPlayer())
         return;
 
-    LogoutRequest(0);
+    SetLogoutStartTime(0);
 
-    WorldPacket data(SMSG_LOGOUT_CANCEL_ACK, 0);
-    SendPacket(&data);
+    SendPacket(WorldPackets::Character::LogoutCancelAck().Write());
 
     // not remove flags if can't free move - its not set in Logout request code.
     if (GetPlayer()->CanFreeMove())
@@ -541,12 +538,9 @@ void WorldSession::HandleRequestCemeteryList(WorldPacket& /*recvPacket*/)
     SendPacket(&data);
 }
 
-void WorldSession::HandleSetSelectionOpcode(WorldPacket& recvData)
+void WorldSession::HandleSetSelectionOpcode(WorldPackets::Misc::SetSelection& packet)
 {
-    ObjectGuid guid;
-    recvData >> guid;
-
-    _player->SetSelection(guid);
+    _player->SetSelection(packet.Selection);
 }
 
 void WorldSession::HandleStandStateChangeOpcode(WorldPacket& recvData)
@@ -606,7 +600,7 @@ void WorldSession::HandleAddFriendOpcodeCallBack(PreparedQueryResult result, std
     {
         Field* fields = result->Fetch();
 
-        friendGuid = ObjectGuid(HighGuid::Player, 0, fields[0].GetUInt64());
+        friendGuid = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
         team = Player::TeamForRace(fields[1].GetUInt8());
         friendAccountId = fields[2].GetUInt32();
 
@@ -691,7 +685,7 @@ void WorldSession::HandleAddIgnoreOpcodeCallBack(PreparedQueryResult result)
 
     if (result)
     {
-        IgnoreGuid = ObjectGuid(HighGuid::Player, (*result)[0].GetUInt64());
+        IgnoreGuid = ObjectGuid::Create<HighGuid::Player>((*result)[0].GetUInt64());
 
         if (!IgnoreGuid.IsEmpty())
         {
@@ -867,24 +861,24 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (player->GetMapId() != atEntry->mapid)
+    if (player->GetMapId() != atEntry->MapID)
     {
         TC_LOG_DEBUG("network", "HandleAreaTriggerOpcode: Player '%s' (%s) too far (trigger map: %u player map: %u), ignore Area Trigger ID: %u",
-            player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->mapid, player->GetMapId(), triggerId);
+            player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->MapID, player->GetMapId(), triggerId);
         return;
     }
 
     // delta is safe radius
     const float delta = 5.0f;
 
-    if (atEntry->radius > 0)
+    if (atEntry->Radius > 0)
     {
         // if we have radius check it
-        float dist = player->GetDistance(atEntry->x, atEntry->y, atEntry->z);
-        if (dist > atEntry->radius + delta)
+        float dist = player->GetDistance(atEntry->Pos.X, atEntry->Pos.Y, atEntry->Pos.Z);
+        if (dist > atEntry->Radius + delta)
         {
             TC_LOG_DEBUG("network", "HandleAreaTriggerOpcode: Player '%s' (%s) too far (radius: %f distance: %f), ignore Area Trigger ID: %u",
-                player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->radius, dist, triggerId);
+                player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->Radius, dist, triggerId);
             return;
         }
     }
@@ -896,26 +890,26 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recvData)
         // is-in-cube check and we have to calculate only one point instead of 4
 
         // 2PI = 360°, keep in mind that ingame orientation is counter-clockwise
-        double rotation = 2 * M_PI - atEntry->box_orientation;
+        double rotation = 2 * M_PI - atEntry->BoxYaw;
         double sinVal = std::sin(rotation);
         double cosVal = std::cos(rotation);
 
-        float playerBoxDistX = player->GetPositionX() - atEntry->x;
-        float playerBoxDistY = player->GetPositionY() - atEntry->y;
+        float playerBoxDistX = player->GetPositionX() - atEntry->Pos.X;
+        float playerBoxDistY = player->GetPositionY() - atEntry->Pos.Y;
 
-        float rotPlayerX = float(atEntry->x + playerBoxDistX * cosVal - playerBoxDistY*sinVal);
-        float rotPlayerY = float(atEntry->y + playerBoxDistY * cosVal + playerBoxDistX*sinVal);
+        float rotPlayerX = float(atEntry->Pos.X + playerBoxDistX * cosVal - playerBoxDistY*sinVal);
+        float rotPlayerY = float(atEntry->Pos.Y + playerBoxDistY * cosVal + playerBoxDistX*sinVal);
 
         // box edges are parallel to coordiante axis, so we can treat every dimension independently :D
-        float dz = player->GetPositionZ() - atEntry->z;
-        float dx = rotPlayerX - atEntry->x;
-        float dy = rotPlayerY - atEntry->y;
-        if ((std::fabs(dx) > atEntry->box_x / 2 + delta) ||
-            (std::fabs(dy) > atEntry->box_y / 2 + delta) ||
-            (std::fabs(dz) > atEntry->box_z / 2 + delta))
+        float dz = player->GetPositionZ() - atEntry->Pos.Z;
+        float dx = rotPlayerX - atEntry->Pos.X;
+        float dy = rotPlayerY - atEntry->Pos.Y;
+        if ((std::fabs(dx) > atEntry->BoxLength / 2 + delta) ||
+            (std::fabs(dy) > atEntry->BoxWidth / 2 + delta) ||
+            (std::fabs(dz) > atEntry->BoxHeight / 2 + delta))
         {
             TC_LOG_DEBUG("network", "HandleAreaTriggerOpcode: Player '%s' (%s) too far (1/2 box X: %f 1/2 box Y: %f 1/2 box Z: %f rotatedPlayerX: %f rotatedPlayerY: %f dZ:%f), ignore Area Trigger ID: %u",
-                player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->box_x / 2, atEntry->box_y / 2, atEntry->box_z / 2, rotPlayerX, rotPlayerY, dz, triggerId);
+                player->GetName().c_str(), player->GetGUID().ToString().c_str(), atEntry->BoxLength / 2, atEntry->BoxWidth / 2, atEntry->BoxHeight / 2, rotPlayerX, rotPlayerY, dz, triggerId);
             return;
         }
     }
@@ -935,7 +929,7 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recvData)
     {
         // set resting flag we are in the inn
         player->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
-        player->InnEnter(time(NULL), atEntry->mapid, atEntry->x, atEntry->y, atEntry->z);
+        player->InnEnter(time(NULL), atEntry->MapID, atEntry->Pos.X, atEntry->Pos.Y, atEntry->Pos.Z);
         player->SetRestType(REST_TYPE_IN_TAVERN);
 
         if (sWorld->IsFFAPvPRealm())
@@ -971,97 +965,70 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recvData)
         player->TeleportTo(at->target_mapId, at->target_X, at->target_Y, at->target_Z, at->target_Orientation, TELE_TO_NOT_LEAVE_TRANSPORT);
 }
 
-void WorldSession::HandleUpdateAccountData(WorldPacket& recvData)
+void WorldSession::HandleUpdateAccountData(WorldPackets::ClientConfig::UserClientUpdateAccountData& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_UPDATE_ACCOUNT_DATA");
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_UPDATE_ACCOUNT_DATA: type %u, time %u, decompressedSize %u",
+        packet.DataType, packet.Time, packet.Size);
 
-    uint32 type, timestamp, decompressedSize;
-    recvData >> type >> timestamp >> decompressedSize;
-
-    TC_LOG_DEBUG("network", "UAD: type %u, time %u, decompressedSize %u", type, timestamp, decompressedSize);
-
-    if (type > NUM_ACCOUNT_DATA_TYPES)
+    if (packet.DataType > NUM_ACCOUNT_DATA_TYPES)
         return;
 
-    if (decompressedSize == 0)                               // erase
+    if (packet.Size == 0)                               // erase
     {
-        SetAccountData(AccountDataType(type), 0, "");
-
-        WorldPacket data(SMSG_UPDATE_ACCOUNT_DATA_COMPLETE, 4+4);
-        data << uint32(type);
-        data << uint32(0);
-        SendPacket(&data);
-
+        SetAccountData(AccountDataType(packet.DataType), 0, "");
         return;
     }
 
-    if (decompressedSize > 0xFFFF)
+    if (packet.Size > 0xFFFF)
     {
-        recvData.rfinish();                   // unnneded warning spam in this case
-        TC_LOG_ERROR("network", "UAD: Account data packet too big, size %u", decompressedSize);
+        TC_LOG_ERROR("network", "UAD: Account data packet too big, size %u", packet.Size);
         return;
     }
 
     ByteBuffer dest;
-    dest.resize(decompressedSize);
+    dest.resize(packet.Size);
 
-    uLongf realSize = decompressedSize;
-    if (uncompress(dest.contents(), &realSize, recvData.contents() + recvData.rpos(), recvData.size() - recvData.rpos()) != Z_OK)
+    uLongf realSize = packet.Size;
+    if (uncompress(dest.contents(), &realSize, packet.CompressedData.contents(), packet.CompressedData.size()) != Z_OK)
     {
-        recvData.rfinish();                   // unnneded warning spam in this case
         TC_LOG_ERROR("network", "UAD: Failed to decompress account data");
         return;
     }
 
-    recvData.rfinish();                       // uncompress read (recvData.size() - recvData.rpos())
-
     std::string adata;
     dest >> adata;
 
-    SetAccountData(AccountDataType(type), timestamp, adata);
-
-    WorldPacket data(SMSG_UPDATE_ACCOUNT_DATA_COMPLETE, 4+4);
-    data << uint32(type);
-    data << uint32(0);
-    SendPacket(&data);
+    SetAccountData(AccountDataType(packet.DataType), packet.Time, adata);
 }
 
-void WorldSession::HandleRequestAccountData(WorldPacket& recvData)
+void WorldSession::HandleRequestAccountData(WorldPackets::ClientConfig::RequestAccountData& request)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_REQUEST_ACCOUNT_DATA");
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_REQUEST_ACCOUNT_DATA: type %u", request.DataType);
 
-    uint32 type;
-    recvData >> type;
-
-    TC_LOG_DEBUG("network", "RAD: type %u", type);
-
-    if (type >= NUM_ACCOUNT_DATA_TYPES)
+    if (request.DataType >= NUM_ACCOUNT_DATA_TYPES)
         return;
 
-    AccountData* adata = GetAccountData(AccountDataType(type));
+    AccountData const* adata = GetAccountData(AccountDataType(request.DataType));
 
-    uint32 size = adata->Data.size();
+    WorldPackets::ClientConfig::UpdateAccountData data;
+    data.Player = _player ? _player->GetGUID() : ObjectGuid::Empty;
+    data.Time = adata->Time;
+    data.Size = adata->Data.size();
+    data.DataType = request.DataType;
 
-    uLongf destSize = compressBound(size);
+    uLongf destSize = compressBound(data.Size);
 
-    ByteBuffer dest;
-    dest.resize(destSize);
+    data.CompressedData.resize(destSize);
 
-    if (size && compress(dest.contents(), &destSize, (uint8 const*)adata->Data.c_str(), size) != Z_OK)
+    if (data.Size && compress(data.CompressedData.contents(), &destSize, (uint8 const*)adata->Data.c_str(), data.Size) != Z_OK)
     {
-        TC_LOG_DEBUG("network", "RAD: Failed to compress account data");
+        TC_LOG_ERROR("network", "RAD: Failed to compress account data");
         return;
     }
 
-    dest.resize(destSize);
+    data.CompressedData.resize(destSize);
 
-    WorldPacket data(SMSG_UPDATE_ACCOUNT_DATA, 8+4+4+4+destSize);
-    data << (_player ? _player->GetGUID() : ObjectGuid::Empty);
-    data << uint32(type);                                   // type (0-7)
-    data << uint32(adata->Time);                            // unix time
-    data << uint32(size);                                   // decompressed length
-    data.append(dest);                                      // compressed data
-    SendPacket(&data);
+    SendPacket(data.Write());
 }
 
 int32 WorldSession::HandleEnableNagleAlgorithm()
@@ -1246,6 +1213,7 @@ void WorldSession::HandleInspectOpcode(WorldPacket& recvData)
     WorldPacket data(SMSG_INSPECT_TALENT, 8 + 4 + 1 + 1 + talent_points + 8 + 4 + 8 + 4);
     data << player->GetGUID();
 
+    /* TODO: 6.x update packet structure (BuildPlayerTalentsInfoData no longer exists)
     if (sWorld->getBoolConfig(CONFIG_TALENTS_INSPECTING) || _player->IsGameMaster())
         player->BuildPlayerTalentsInfoData(&data);
     else
@@ -1254,6 +1222,7 @@ void WorldSession::HandleInspectOpcode(WorldPacket& recvData)
         data << uint8(0);                                   // talentGroupCount
         data << uint8(0);                                   // talentGroupIndex
     }
+    */
 
     player->BuildEnchantmentsInfoData(&data);
     if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
@@ -1524,24 +1493,21 @@ void WorldSession::HandleSetTitleOpcode(WorldPacket& recvData)
     GetPlayer()->SetUInt32Value(PLAYER_CHOSEN_TITLE, title);
 }
 
-void WorldSession::HandleTimeSyncResp(WorldPacket& recvData)
+void WorldSession::HandleTimeSyncResp(WorldPackets::Misc::TimeSyncResponse& packet)
 {
     TC_LOG_DEBUG("network", "CMSG_TIME_SYNC_RESP");
 
-    uint32 counter, clientTicks;
-    recvData >> counter >> clientTicks;
-
-    if (counter != _player->m_timeSyncQueue.front())
+    if (packet.SequenceIndex != _player->m_timeSyncQueue.front())
         TC_LOG_ERROR("network", "Wrong time sync counter from player %s (cheater?)", _player->GetName().c_str());
 
-    TC_LOG_DEBUG("network", "Time sync received: counter %u, client ticks %u, time since last sync %u", counter, clientTicks, clientTicks - _player->m_timeSyncClient);
+    TC_LOG_DEBUG("network", "Time sync received: counter %u, client ticks %u, time since last sync %u", packet.SequenceIndex, packet.ClientTime, packet.ClientTime - _player->m_timeSyncClient);
 
-    uint32 ourTicks = clientTicks + (getMSTime() - _player->m_timeSyncServer);
+    uint32 ourTicks = packet.ClientTime + (getMSTime() - _player->m_timeSyncServer);
 
     // diff should be small
-    TC_LOG_DEBUG("network", "Our ticks: %u, diff %u, latency %u", ourTicks, ourTicks - clientTicks, GetLatency());
+    TC_LOG_DEBUG("network", "Our ticks: %u, diff %u, latency %u", ourTicks, ourTicks - packet.ClientTime, GetLatency());
 
-    _player->m_timeSyncClient = clientTicks;
+    _player->m_timeSyncClient = packet.ClientTime;
     _player->m_timeSyncQueue.pop();
 }
 
@@ -1758,17 +1724,9 @@ void WorldSession::HandleWorldStateUITimerUpdate(WorldPacket& /*recvData*/)
     // empty opcode
     TC_LOG_DEBUG("network", "WORLD: CMSG_WORLD_STATE_UI_TIMER_UPDATE");
 
-    WorldPacket data(SMSG_WORLD_STATE_UI_TIMER_UPDATE, 4);
-    data << uint32(time(NULL));
-    SendPacket(&data);
-}
-
-void WorldSession::HandleReadyForAccountDataTimes(WorldPacket& /*recvData*/)
-{
-    // empty opcode
-    TC_LOG_DEBUG("network", "WORLD: CMSG_READY_FOR_ACCOUNT_DATA_TIMES");
-
-    SendAccountDataTimes(GLOBAL_CACHE_MASK);
+    WorldPackets::Misc::UITime response;
+    response.Time = time(NULL);
+    SendPacket(response.Write());
 }
 
 void WorldSession::SendSetPhaseShift(std::set<uint32> const& phaseIds, std::set<uint32> const& terrainswaps, std::set<uint32> const& worldMapAreaSwaps)
@@ -1878,7 +1836,7 @@ void WorldSession::HandleHearthAndResurrect(WorldPacket& /*recvData*/)
     }
 
     AreaTableEntry const* atEntry = GetAreaEntryByAreaID(_player->GetAreaId());
-    if (!atEntry || !(atEntry->flags & AREA_FLAG_WINTERGRASP_2))
+    if (!atEntry || !(atEntry->Flags[0] & AREA_FLAG_WINTERGRASP_2))
         return;
 
     _player->BuildPlayerRepop();
@@ -1904,74 +1862,6 @@ void WorldSession::HandleInstanceLockResponse(WorldPacket& recvPacket)
         _player->RepopAtGraveyard();
 
     _player->SetPendingBind(0, 0);
-}
-
-void WorldSession::HandleRequestHotfix(WorldPacket& recvPacket)
-{
-    uint32 type, count;
-    recvPacket >> type;
-
-    DB2StorageBase const* store = GetDB2Storage(type);
-    if (!store)
-    {
-        TC_LOG_ERROR("network", "CMSG_REQUEST_HOTFIX: Received unknown hotfix type: %u", type);
-        recvPacket.rfinish();
-        return;
-    }
-
-    count = recvPacket.ReadBits(23);
-
-    ObjectGuid* guids = new ObjectGuid[count];
-    for (uint32 i = 0; i < count; ++i)
-    {
-        guids[i][0] = recvPacket.ReadBit();
-        guids[i][4] = recvPacket.ReadBit();
-        guids[i][7] = recvPacket.ReadBit();
-        guids[i][2] = recvPacket.ReadBit();
-        guids[i][5] = recvPacket.ReadBit();
-        guids[i][3] = recvPacket.ReadBit();
-        guids[i][6] = recvPacket.ReadBit();
-        guids[i][1] = recvPacket.ReadBit();
-    }
-
-    uint32 entry;
-    for (uint32 i = 0; i < count; ++i)
-    {
-        recvPacket.ReadByteSeq(guids[i][5]);
-        recvPacket.ReadByteSeq(guids[i][6]);
-        recvPacket.ReadByteSeq(guids[i][7]);
-        recvPacket.ReadByteSeq(guids[i][0]);
-        recvPacket.ReadByteSeq(guids[i][1]);
-        recvPacket.ReadByteSeq(guids[i][3]);
-        recvPacket.ReadByteSeq(guids[i][4]);
-        recvPacket >> entry;
-        recvPacket.ReadByteSeq(guids[i][2]);
-
-        if (!store->HasRecord(entry))
-        {
-            WorldPacket data(SMSG_DB_REPLY, 4 * 4);
-            data << -int32(entry);
-            data << uint32(store->GetHash());
-            data << uint32(time(NULL));
-            data << uint32(0);
-            SendPacket(&data);
-            continue;
-        }
-
-        WorldPacket data(SMSG_DB_REPLY);
-        data << int32(entry);
-        data << uint32(store->GetHash());
-        data << uint32(sObjectMgr->GetHotfixDate(entry, store->GetHash()));
-
-        size_t sizePos = data.wpos();
-        data << uint32(0);              // size of next block
-        store->WriteRecord(entry, uint32(GetSessionDbcLocale()), data);
-        data.put<uint32>(sizePos, data.wpos() - sizePos - 4);
-
-        SendPacket(&data);
-    }
-
-    delete[] guids;
 }
 
 void WorldSession::HandleUpdateMissileTrajectory(WorldPacket& recvPacket)
@@ -2013,16 +1903,13 @@ void WorldSession::HandleUpdateMissileTrajectory(WorldPacket& recvPacket)
     {
         uint32 opcode;
         recvPacket >> opcode;
-        recvPacket.SetOpcode(MSG_MOVE_STOP); // always set to MSG_MOVE_STOP in client SetOpcode
-        HandleMovementOpcodes(recvPacket);
+        recvPacket.SetOpcode(CMSG_MOVE_STOP); // always set to CMSG_MOVE_STOP in client SetOpcode
+        //HandleMovementOpcodes(recvPacket);
     }
 }
 
-void WorldSession::HandleViolenceLevel(WorldPacket& recvPacket)
+void WorldSession::HandleViolenceLevel(WorldPackets::Misc::ViolenceLevel& /*violenceLevel*/)
 {
-    uint8 violenceLevel;
-    recvPacket >> violenceLevel;
-
     // do something?
 }
 

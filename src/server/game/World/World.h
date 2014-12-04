@@ -30,6 +30,7 @@
 #include "SharedDefines.h"
 #include "QueryResult.h"
 #include "Callback.h"
+#include "Realm/Realm.h"
 
 #include <atomic>
 #include <map>
@@ -170,6 +171,8 @@ enum WorldBoolConfigs
     CONFIG_ALLOW_TRACK_BOTH_RESOURCES,
     CONFIG_CALCULATE_CREATURE_ZONE_AREA_DATA,
     CONFIG_CALCULATE_GAMEOBJECT_ZONE_AREA_DATA,
+    CONFIG_FEATURE_SYSTEM_BPAY_STORE_ENABLED,
+    CONFIG_FEATURE_SYSTEM_CHARACTER_UNDELETE_ENABLED,
     BOOL_CONFIG_VALUE_COUNT
 };
 
@@ -202,6 +205,7 @@ enum WorldIntConfigs
     CONFIG_INTERVAL_CHANGEWEATHER,
     CONFIG_INTERVAL_DISCONNECT_TOLERANCE,
     CONFIG_PORT_WORLD,
+    CONFIG_PORT_INSTANCE,
     CONFIG_SOCKET_TIMEOUTTIME,
     CONFIG_SESSION_ADD_DELAY,
     CONFIG_GAME_TYPE,
@@ -358,6 +362,7 @@ enum WorldIntConfigs
     CONFIG_BG_REWARD_WINNER_CONQUEST_LAST,
     CONFIG_CREATURE_PICKPOCKET_REFILL,
     CONFIG_AHBOT_UPDATE_INTERVAL,
+    CONFIG_FEATURE_SYSTEM_CHARACTER_UNDELETE_COOLDOWN,
     INT_CONFIG_VALUE_COUNT
 };
 
@@ -510,6 +515,8 @@ enum WorldStates
     WS_GUILD_WEEKLY_RESET_TIME  = 20050,                     // Next guild week reset time
 };
 
+#define MAX_CHARACTERS_PER_REALM 11
+
 /// Storage class for commands issued for delayed execution
 struct CliCommandHolder
 {
@@ -536,13 +543,14 @@ private:
 
 typedef std::unordered_map<uint32, WorldSession*> SessionMap;
 
-struct CharacterNameData
+struct CharacterInfo
 {
-    std::string m_name;
-    uint8 m_class;
-    uint8 m_race;
-    uint8 m_gender;
-    uint8 m_level;
+    std::string Name;
+    uint8 Class;
+    uint8 Race;
+    uint8 Sex;
+    uint8 Level;
+    bool IsDeleted;
 };
 
 /// The World
@@ -612,9 +620,9 @@ class World
         void SetAllowMovement(bool allow) { m_allowMovement = allow; }
 
         /// Set a new Message of the Day
-        void SetMotd(std::string const& motd);
+        void SetMotd(std::string motd);
         /// Get the current Message of the Day
-        const char* GetMotd() const;
+        std::vector<std::string> const& GetMotd() const;
 
         /// Set the string for new characters (first login)
         void SetNewCharString(std::string const& str) { m_newCharString = str; }
@@ -655,9 +663,9 @@ class World
         void SendGlobalText(const char* text, WorldSession* self);
         void SendGMText(uint32 string_id, ...);
         void SendServerMessage(ServerMessageType type, const char *text = "", Player* player = NULL);
-        void SendGlobalMessage(WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
-        void SendGlobalGMMessage(WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
-        bool SendZoneMessage(uint32 zone, WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
+        void SendGlobalMessage(WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
+        void SendGlobalGMMessage(WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
+        bool SendZoneMessage(uint32 zone, WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
         void SendZoneText(uint32 zone, const char *text, WorldSession* self = nullptr, uint32 team = 0);
 
         /// Are we in the middle of a shutdown?
@@ -761,12 +769,13 @@ class World
 
         void UpdateAreaDependentAuras();
 
-        CharacterNameData const* GetCharacterNameData(ObjectGuid guid) const;
-        void AddCharacterNameData(ObjectGuid guid, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level);
-        void UpdateCharacterNameData(ObjectGuid guid, std::string const& name, uint8 gender = GENDER_NONE, uint8 race = RACE_NONE);
-        void UpdateCharacterNameDataLevel(ObjectGuid guid, uint8 level);
-        void DeleteCharacterNameData(ObjectGuid guid) { _characterNameDataMap.erase(guid); }
-        bool HasCharacterNameData(ObjectGuid guid) { return _characterNameDataMap.find(guid) != _characterNameDataMap.end(); }
+        CharacterInfo const* GetCharacterInfo(ObjectGuid const& guid) const;
+        void AddCharacterInfo(ObjectGuid const& guid, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, bool isDeleted);
+        void DeleteCharacterInfo(ObjectGuid const& guid) { _characterInfoStore.erase(guid); }
+        bool HasCharacterInfo(ObjectGuid const& guid) { return _characterInfoStore.find(guid) != _characterInfoStore.end(); }
+        void UpdateCharacterInfo(ObjectGuid const& guid, std::string const& name, uint8 gender = GENDER_NONE, uint8 race = RACE_NONE);
+        void UpdateCharacterInfoLevel(ObjectGuid const& guid, uint8 level);
+        void UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std::string const* name = nullptr);
 
         uint32 GetCleaningFlags() const { return m_CleaningFlags; }
         void   SetCleaningFlags(uint32 flags) { m_CleaningFlags = flags; }
@@ -835,7 +844,7 @@ class World
         LocaleConstant m_defaultDbcLocale;                     // from config for one from loaded DBC locales
         uint32 m_availableDbcLocaleMask;                       // by loaded DBC
         bool m_allowMovement;
-        std::string m_motd;
+        std::vector<std::string> _motd;
         std::string m_dataPath;
 
         // for max speed access
@@ -874,14 +883,17 @@ class World
         typedef std::map<uint8, uint8> AutobroadcastsWeightMap;
         AutobroadcastsWeightMap m_AutobroadcastsWeights;
 
-        std::map<ObjectGuid, CharacterNameData> _characterNameDataMap;
-        void LoadCharacterNameData();
+        typedef std::map<ObjectGuid, CharacterInfo> CharacterInfoContainer;
+        CharacterInfoContainer _characterInfoStore;
+        void LoadCharacterInfoStore();
 
         void ProcessQueryCallbacks();
-        std::deque<std::future<PreparedQueryResult>> m_realmCharCallbacks;
+        std::deque<PreparedQueryResultFuture> m_realmCharCallbacks;
 };
 
 extern Battlenet::RealmHandle realmHandle;
+extern Realm realm;
+uint32 GetVirtualRealmAddress();
 
 #define sWorld World::instance()
 #endif
